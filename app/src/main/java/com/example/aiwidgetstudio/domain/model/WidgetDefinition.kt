@@ -4,7 +4,7 @@ data class WidgetDefinition(
     val metadata: WidgetMetadata,
     val data: WidgetData,
     val actions: List<WidgetAction>,
-    val uiNode: UiNode
+    val ui: UiNode
 )
 
 data class WidgetMetadata(

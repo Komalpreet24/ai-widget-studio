@@ -1,5 +1,6 @@
 package com.example.aiwidgetstudio
 
+import com.example.aiwidgetstudio.engine.parser.WidgetDslParser
 import org.junit.Test
 
 import org.junit.Assert.*
@@ -11,7 +12,31 @@ import org.junit.Assert.*
  */
 class ExampleUnitTest {
     @Test
-    fun addition_isCorrect() {
-        assertEquals(4, 2 + 2)
+    fun parser_readsRootDsl() {
+        val rawJson = """
+            {
+              "dslVersion": 1,
+              "metadata": {
+                "name": "Water Tracker"
+              },
+              "data": {
+                "updatePolicy": {
+                  "type": "DAILY_RESET",
+                  "hour": 0,
+                  "minute": 0
+                },
+                "variables": []
+              },
+              "actions": [],
+              "ui": {
+                "type": "TEXT",
+                "value": "Hello"
+              }
+            }
+        """.trimIndent()
+
+        val result = WidgetDslParser().parse(rawJson)
+
+        assertTrue(result.isSuccess)
     }
 }
