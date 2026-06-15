@@ -1,6 +1,8 @@
 package com.example.aiwidgetstudio
 
 import com.example.aiwidgetstudio.engine.parser.WidgetDslParser
+import com.example.aiwidgetstudio.engine.parser.dto.DslMetadataDto
+import com.example.aiwidgetstudio.engine.parser.mapper.WidgetDslMapper
 import org.junit.Test
 
 import org.junit.Assert.*
@@ -39,4 +41,30 @@ class ExampleUnitTest {
 
         assertTrue(result.isSuccess)
     }
+
+    @Test
+    fun mapper_usesMetadataName() {
+        val metadata = WidgetDslMapper().mapMetadata(
+            DslMetadataDto(name = "Water Tracker")
+        )
+
+        assertEquals("Water Tracker", metadata.name)
+    }
+
+    @Test
+    fun mapper_repairsMissingMetadataName() {
+        val metadata = WidgetDslMapper().mapMetadata(
+            DslMetadataDto(name = "")
+        )
+
+        assertEquals("Untitled", metadata.name)
+    }
+
+    @Test
+    fun mapper_repairsNullMetadata() {
+        val metadata = WidgetDslMapper().mapMetadata(null)
+
+        assertEquals("Untitled", metadata.name)
+    }
+
 }
