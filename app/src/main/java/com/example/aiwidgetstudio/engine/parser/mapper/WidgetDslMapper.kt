@@ -5,6 +5,7 @@ import com.example.aiwidgetstudio.domain.model.UiNodeMargin
 import com.example.aiwidgetstudio.domain.model.UiNodeStyle
 import com.example.aiwidgetstudio.domain.model.UpdatePolicy
 import com.example.aiwidgetstudio.domain.model.VariableDefinition
+import com.example.aiwidgetstudio.domain.model.VariableValue
 import com.example.aiwidgetstudio.domain.model.WidgetAction
 import com.example.aiwidgetstudio.domain.model.WidgetAlignment
 import com.example.aiwidgetstudio.domain.model.WidgetData
@@ -19,7 +20,6 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.longOrNull
 
 class WidgetDslMapper {
@@ -125,152 +125,114 @@ class WidgetDslMapper {
                 obj.toStringOrNull("target")?.takeIf { it.isNotBlank() } ?: return null
             )
 
+            "SET_VALUE" -> WidgetAction.SetValue(
+                id = id,
+                target = obj.toStringOrNull("target")?.takeIf { it.isNotBlank() } ?: return null,
+                value = mapVariableValue(obj["value"]) ?: return null
+            )
+
+            "TOGGLE" -> WidgetAction.Toggle(
+                id = id,
+                target = obj.toStringOrNull("target")?.takeIf { it.isNotBlank() } ?: return null
+            )
+
             "OPEN_APP" -> WidgetAction.OpenApp(
                 id
+            )
+
+            "OPEN_URL" -> WidgetAction.OpenUrl(
+                id = id,
+                url = obj.toStringOrNull("url")?.takeIf { it.isNotBlank() } ?: return null
             )
 
             else -> null
         }
     }
 
-    fun mapUiNode(ui: JsonElement?): UiNode? { //TODO: break into smaller functions
-        val obj = ui?.asObjectOrNull() ?: return null
+    fun mapUiNode(ui: JsonElement?): UiNode {
+        val obj = ui?.asObjectOrNull() ?: return fallbackUiNode()
+        val style = mapStyle(obj["style"])
+        val type = obj.toStringOrNull("type")?.uppercase()
 
-        val styleObj = obj["style"]?.asObjectOrNull()
-        val marginObj = styleObj?.get("margin")?.asObjectOrNull()
-        val paddingObj = styleObj?.get("padding")?.asObjectOrNull()
-        val textColor: String? = styleObj?.toStringOrNull("textColor")
-        val backgroundColor: String? = styleObj?.toStringOrNull("backgroundColor")
-        val cornerRadius: Int? = styleObj?.toIntOrNull("cornerRadius")
-        val margin: UiNodeMargin? = UiNodeMargin(
-            left = marginObj?.toIntOrNull("left"),
-            right = marginObj?.toIntOrNull("right"),
-            top = marginObj?.toIntOrNull("top"),
-            bottom = marginObj?.toIntOrNull("bottom")
+        return mapLayoutNode(type, obj, style)
+            ?: mapContentNode(type, obj, style)
+            ?: fallbackUiNode()
+    }
+
+    private fun mapLayoutNode(type: String?, obj: JsonObject, style: UiNodeStyle): UiNode? = when (type) {
+        "CARD" -> UiNode.Card(style, mapUiNode(obj["child"]))
+        "BOX" -> UiNode.Box(style, mapUiNode(obj["child"]))
+        "COL", "COLUMN" -> UiNode.Column(style, obj.arrayOrEmpty("children").map(::mapUiNode))
+        "ROW" -> UiNode.Row(style, obj.arrayOrEmpty("children").map(::mapUiNode))
+        else -> null
+    }
+
+    private fun mapContentNode(type: String?, obj: JsonObject, style: UiNodeStyle): UiNode? = when (type) {
+        "BUTTON" -> UiNode.Button(style, obj.toStringOrNull("text") ?: "", obj.toStringOrNull("action") ?: "")
+        "TEXT" -> UiNode.Text(style, obj.toStringOrNull("value") ?: "")
+        "SPACER" -> UiNode.Spacer(style, obj.toIntOrNull("width"), obj.toIntOrNull("height"))
+        "PROGRESS" -> UiNode.Progress(style, obj.toStringOrNull("current") ?: "0", obj.toStringOrNull("max") ?: "1")
+        "DIVIDER" -> UiNode.Divider(style)
+        "ICON" -> UiNode.Icon(style, obj.toStringOrNull("icon") ?: "?")
+        else -> null
+    }
+
+    private fun mapStyle(element: JsonElement?): UiNodeStyle {
+        val obj = element?.asObjectOrNull() ?: return UiNodeStyle()
+        return UiNodeStyle(
+            textColor = obj.toStringOrNull("textColor"),
+            backgroundColor = obj.toStringOrNull("backgroundColor"),
+            cornerRadius = obj.toIntOrNull("cornerRadius"),
+            margin = mapMargin(obj["margin"]),
+            padding = mapMargin(obj["padding"]),
+            alignment = mapAlignment(obj.toStringOrNull("alignment")),
+            arrangement = mapAlignment(obj.toStringOrNull("arrangement")),
+            height = obj.toIntOrNull("height"),
+            width = obj.toIntOrNull("width")
         )
-        val padding: UiNodeMargin? = UiNodeMargin(
-            left = paddingObj?.toIntOrNull("left"),
-            right = paddingObj?.toIntOrNull("right"),
-            top = paddingObj?.toIntOrNull("top"),
-            bottom = paddingObj?.toIntOrNull("bottom")
-        )
-        val alignment: WidgetAlignment = when (styleObj?.toStringOrNull("alignment")?.uppercase()) {
-            "START" -> WidgetAlignment.START
-            "CENTER" -> WidgetAlignment.CENTER
-            "END" -> WidgetAlignment.END
-            else -> WidgetAlignment.CENTER
+    }
+
+    private fun mapMargin(element: JsonElement?): UiNodeMargin? {
+        (element as? JsonPrimitive)?.intOrNull?.let { value ->
+            return UiNodeMargin(value, value, value, value)
         }
-        val arrangement: WidgetAlignment? =
-            when (styleObj?.toStringOrNull("arrangement")?.uppercase()) {
-                "START" -> WidgetAlignment.START
-                "CENTER" -> WidgetAlignment.CENTER
-                "END" -> WidgetAlignment.END
-                else -> WidgetAlignment.CENTER
-            }
-        val height: Int? = styleObj?.toIntOrNull("height")
-        val width: Int? = styleObj?.toIntOrNull("width")
 
-        val style = UiNodeStyle(
-            textColor = textColor,
-            backgroundColor = backgroundColor,
-            cornerRadius = cornerRadius,
-            margin = margin,
-            padding = padding,
-            alignment = alignment,
-            arrangement = arrangement,
-            height = height,
-            width = width,
+        val obj = element?.asObjectOrNull() ?: return null
+        return UiNodeMargin(
+            left = obj.toIntOrNull("left"),
+            top = obj.toIntOrNull("top"),
+            right = obj.toIntOrNull("right"),
+            bottom = obj.toIntOrNull("bottom")
         )
+    }
 
-        return when (obj.toStringOrNull("type")?.uppercase()) {
-            "CARD" -> {
-                UiNode.Card(
-                    style = style,
-                    child = mapUiNode(obj["child"]) ?: return null
-                )
-            }
+    private fun mapAlignment(value: String?): WidgetAlignment? = when (value?.uppercase()) {
+        "START", "LEFT" -> WidgetAlignment.START
+        "CENTER", "CENTRE" -> WidgetAlignment.CENTER
+        "END", "RIGHT" -> WidgetAlignment.END
+        else -> null
+    }
 
-            "COL", "COLUMN" -> {
-                UiNode.Column(
-                    style = style,
-                    children = obj.asJsonArray("children")?.mapNotNull {
-                        mapUiNode(it)
-                    } ?: return null
-                )
-            }
-
-            "ROW" -> {
-                UiNode.Row(
-                    style = style,
-                    children = obj.asJsonArray("children")?.mapNotNull {
-                        mapUiNode(it)
-                    } ?: return null
-                )
-            }
-
-            "BOX" -> {
-                UiNode.Box(
-                    style = style,
-                    child = mapUiNode(obj["child"]) ?: return null
-                )
-            }
-
-            "BUTTON" -> {
-                UiNode.Button(
-                    style = style,
-                    text = obj.toStringOrNull("text") ?: "",
-                    action = obj.toStringOrNull("action") ?: ""
-                )
-            }
-
-            "TEXT" -> {
-                UiNode.Text(
-                    style = style,
-                    value = obj.toStringOrNull("value") ?: ""
-                )
-            }
-
-            "SPACER" -> {
-                UiNode.Spacer(
-                    style = style,
-                    width = obj.toIntOrNull("width"),
-                    height = obj.toIntOrNull("height")
-                )
-            }
-
-            "PROGRESS" -> {
-                UiNode.Progress(
-                    style = style,
-                    current = obj.toStringOrNull("current") ?: return null,
-                    max = obj.toStringOrNull("max") ?: return null
-                )
-            }
-
-            "DIVIDER" -> {
-                UiNode.Divider(
-                    style = style
-                )
-            }
-
-            "ICON" -> {
-                UiNode.Icon(
-                    style = style,
-                    icon = obj.toStringOrNull("icon") ?: return null
-                )
-            }
-
+    private fun mapVariableValue(element: JsonElement?): VariableValue? {
+        val primitive = element as? JsonPrimitive ?: return null
+        return when {
+            primitive.isString -> VariableValue.StringValue(primitive.content)
+            primitive.booleanOrNull != null -> VariableValue.BooleanValue(primitive.booleanOrNull!!)
+            primitive.intOrNull != null -> VariableValue.IntValue(primitive.intOrNull!!)
+            primitive.doubleOrNull != null -> VariableValue.DoubleValue(primitive.doubleOrNull!!)
             else -> null
         }
     }
+
+    private fun fallbackUiNode(): UiNode = UiNode.Text(UiNodeStyle(), "Unable to render widget")
 
     //JSON Helper Functions
     private fun JsonElement.asObjectOrNull(): JsonObject? {
         return this as? JsonObject
     }
 
-    private fun JsonObject.asJsonArray(key: String): JsonArray? {
-        return (this[key] as? JsonPrimitive)?.jsonArray
-    }
+    private fun JsonObject.arrayOrEmpty(key: String): List<JsonElement> =
+        (this[key] as? JsonArray).orEmpty()
 
     private fun JsonObject.toStringOrNull(key: String): String? {
         return (this[key] as? JsonPrimitive)?.contentOrNull

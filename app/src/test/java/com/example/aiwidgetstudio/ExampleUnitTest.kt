@@ -3,6 +3,7 @@ package com.example.aiwidgetstudio
 import com.example.aiwidgetstudio.engine.parser.WidgetDslParser
 import com.example.aiwidgetstudio.engine.parser.dto.DslMetadataDto
 import com.example.aiwidgetstudio.engine.parser.mapper.WidgetDslMapper
+import kotlinx.serialization.json.Json
 import org.junit.Test
 
 import org.junit.Assert.*
@@ -65,6 +66,17 @@ class ExampleUnitTest {
         val metadata = WidgetDslMapper().mapMetadata(null)
 
         assertEquals("Untitled", metadata.name)
+    }
+
+    @Test
+    fun mapper_keepsValidUiChildrenAndRepairsUnknownNodes() {
+        val ui = Json.parseToJsonElement(
+            """{"type":"COLUMN","children":[{"type":"TEXT","value":"Water"},{"type":"UNKNOWN"}]}"""
+        )
+
+        val node = WidgetDslMapper().mapUiNode(ui)
+
+        assertEquals(2, (node as com.example.aiwidgetstudio.domain.model.UiNode.Column).children.size)
     }
 
 }
