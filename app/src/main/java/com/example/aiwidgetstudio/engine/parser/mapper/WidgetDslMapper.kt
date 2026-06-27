@@ -9,9 +9,12 @@ import com.example.aiwidgetstudio.domain.model.VariableValue
 import com.example.aiwidgetstudio.domain.model.WidgetAction
 import com.example.aiwidgetstudio.domain.model.WidgetAlignment
 import com.example.aiwidgetstudio.domain.model.WidgetData
+import com.example.aiwidgetstudio.domain.model.WidgetDefinition
 import com.example.aiwidgetstudio.domain.model.WidgetMetadata
+import com.example.aiwidgetstudio.engine.parser.WidgetDslParser
 import com.example.aiwidgetstudio.engine.parser.dto.DslDataDto
 import com.example.aiwidgetstudio.engine.parser.dto.DslMetadataDto
+import com.example.aiwidgetstudio.engine.parser.dto.DslWidgetDto
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -24,7 +27,18 @@ import kotlinx.serialization.json.longOrNull
 
 class WidgetDslMapper {
 
-    fun mapMetadata(metadata: DslMetadataDto?): WidgetMetadata {
+    fun parseWidget(rawJson: String): Result<WidgetDefinition> {
+        return WidgetDslParser().parse(rawJson).map { map(it) }
+    }
+
+    private fun map(widget: DslWidgetDto) = WidgetDefinition(
+        mapMetadata(widget.metadata),
+        mapData(widget.data),
+        mapActions(widget.actions),
+        mapUiNode(widget.ui)
+    )
+
+    private fun mapMetadata(metadata: DslMetadataDto?): WidgetMetadata {
         return WidgetMetadata(
             metadata?.name
                 ?.takeIf { it.isNotBlank() }
@@ -32,7 +46,7 @@ class WidgetDslMapper {
         )
     }
 
-    fun mapData(data: DslDataDto?): WidgetData {
+    private fun mapData(data: DslDataDto?): WidgetData {
         return WidgetData(
             mapUpdatePolicy(data?.updatePolicy),
             data?.variables?.mapNotNull {
@@ -41,7 +55,7 @@ class WidgetDslMapper {
         )
     }
 
-    fun mapActions(actions: List<JsonElement>): List<WidgetAction> {
+    private fun mapActions(actions: List<JsonElement>): List<WidgetAction> {
         return actions.mapNotNull {
             mapAction(it)
         }
@@ -159,23 +173,35 @@ class WidgetDslMapper {
             ?: fallbackUiNode()
     }
 
-    private fun mapLayoutNode(type: String?, obj: JsonObject, style: UiNodeStyle): UiNode? = when (type) {
-        "CARD" -> UiNode.Card(style, mapUiNode(obj["child"]))
-        "BOX" -> UiNode.Box(style, mapUiNode(obj["child"]))
-        "COL", "COLUMN" -> UiNode.Column(style, obj.arrayOrEmpty("children").map(::mapUiNode))
-        "ROW" -> UiNode.Row(style, obj.arrayOrEmpty("children").map(::mapUiNode))
-        else -> null
-    }
+    private fun mapLayoutNode(type: String?, obj: JsonObject, style: UiNodeStyle): UiNode? =
+        when (type) {
+            "CARD" -> UiNode.Card(style, mapUiNode(obj["child"]))
+            "BOX" -> UiNode.Box(style, mapUiNode(obj["child"]))
+            "COL", "COLUMN" -> UiNode.Column(style, obj.arrayOrEmpty("children").map(::mapUiNode))
+            "ROW" -> UiNode.Row(style, obj.arrayOrEmpty("children").map(::mapUiNode))
+            else -> null
+        }
 
-    private fun mapContentNode(type: String?, obj: JsonObject, style: UiNodeStyle): UiNode? = when (type) {
-        "BUTTON" -> UiNode.Button(style, obj.toStringOrNull("text") ?: "", obj.toStringOrNull("action") ?: "")
-        "TEXT" -> UiNode.Text(style, obj.toStringOrNull("value") ?: "")
-        "SPACER" -> UiNode.Spacer(style, obj.toIntOrNull("width"), obj.toIntOrNull("height"))
-        "PROGRESS" -> UiNode.Progress(style, obj.toStringOrNull("current") ?: "0", obj.toStringOrNull("max") ?: "1")
-        "DIVIDER" -> UiNode.Divider(style)
-        "ICON" -> UiNode.Icon(style, obj.toStringOrNull("icon") ?: "?")
-        else -> null
-    }
+    private fun mapContentNode(type: String?, obj: JsonObject, style: UiNodeStyle): UiNode? =
+        when (type) {
+            "BUTTON" -> UiNode.Button(
+                style,
+                obj.toStringOrNull("text") ?: "",
+                obj.toStringOrNull("action") ?: ""
+            )
+
+            "TEXT" -> UiNode.Text(style, obj.toStringOrNull("value") ?: "")
+            "SPACER" -> UiNode.Spacer(style, obj.toIntOrNull("width"), obj.toIntOrNull("height"))
+            "PROGRESS" -> UiNode.Progress(
+                style,
+                obj.toStringOrNull("current") ?: "0",
+                obj.toStringOrNull("max") ?: "1"
+            )
+
+            "DIVIDER" -> UiNode.Divider(style)
+            "ICON" -> UiNode.Icon(style, obj.toStringOrNull("icon") ?: "?")
+            else -> null
+        }
 
     private fun mapStyle(element: JsonElement?): UiNodeStyle {
         val obj = element?.asObjectOrNull() ?: return UiNodeStyle()
