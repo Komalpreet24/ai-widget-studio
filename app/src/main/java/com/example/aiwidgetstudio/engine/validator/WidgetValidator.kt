@@ -216,7 +216,7 @@ class WidgetValidator {
                     is VariableDefinition.IntegerVariable, is VariableDefinition.DoubleVariable -> Unit
                     else -> {
                         warnings += WidgetValidatorWarning(
-                            "Variable type should be either integer or double'"
+                            "Variable type should be either integer or double"
                         )
                     }
                 }

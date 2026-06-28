@@ -1,7 +1,6 @@
 package com.example.aiwidgetstudio
 
 import com.example.aiwidgetstudio.engine.parser.WidgetDslParser
-import com.example.aiwidgetstudio.engine.parser.dto.DslMetadataDto
 import com.example.aiwidgetstudio.engine.parser.mapper.WidgetDslMapper
 import kotlinx.serialization.json.Json
 import org.junit.Test
