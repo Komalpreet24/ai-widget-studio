@@ -1,7 +1,9 @@
 package com.example.aiwidgetstudio.engine.validator
 
 import com.example.aiwidgetstudio.domain.model.UiNode
+import com.example.aiwidgetstudio.domain.model.UpdatePolicy
 import com.example.aiwidgetstudio.domain.model.VariableDefinition
+import com.example.aiwidgetstudio.domain.model.VariableValue
 import com.example.aiwidgetstudio.domain.model.WidgetAction
 import com.example.aiwidgetstudio.domain.model.WidgetDefinition
 
@@ -13,15 +15,15 @@ class WidgetValidator {
         val warnings = mutableListOf<WidgetValidatorWarning>()
 
         val variablesByName = widget.data.variables.associateBy { it.name }
-        val variableNames = variablesByName.keys
+        val variableNames = widget.data.variables.map { it.name }
         val actionIds = widget.actions.map { it.id }
 
         variableNames.groupingBy { it }.eachCount().filterValues { it > 1 }.keys.forEach {
-            warnings += WidgetValidatorWarning("Duplicate variable name $it")
+            warnings += WidgetValidatorWarning("Duplicate variable name $it. Variable names must be unique.")
         }
 
         actionIds.groupingBy { it }.eachCount().filterValues { it > 1 }.keys.forEach {
-            warnings += WidgetValidatorWarning("Duplicate action id $it")
+            warnings += WidgetValidatorWarning("Duplicate action id $it. Action ids must be unique.")
         }
 
         widget.actions.forEach { action ->
@@ -36,8 +38,101 @@ class WidgetValidator {
             }
 
             if (target != null && target !in variableNames) {
-                warnings += WidgetValidatorWarning("Action '${action.id}' targets missing variable: $target")
+                warnings += WidgetValidatorWarning("Action '${action.id}' references unknown variable: $target")
             }
+
+            val variable = variablesByName[target]
+
+            when (variable) {
+                is VariableDefinition.DoubleVariable -> when {
+                    (variable.max != null && variable.min != null && variable.min > variable.max) -> warnings += WidgetValidatorWarning(
+                        "Min greater than max"
+                    )
+
+                    ((variable.max != null && variable.default > variable.max) || (variable.min != null && variable.default < variable.min)) -> warnings += WidgetValidatorWarning(
+                        "Default value out of range"
+                    )
+                }
+
+                is VariableDefinition.IntegerVariable -> when {
+                    (variable.max != null && variable.min != null && variable.min > variable.max) -> warnings += WidgetValidatorWarning(
+                        "Min greater than max"
+                    )
+
+                    ((variable.max != null && variable.default > variable.max) || (variable.min != null && variable.default < variable.min)) -> warnings += WidgetValidatorWarning(
+                        "Default value out of range"
+                    )
+                }
+
+                else -> Unit
+            }
+
+            when (action) {
+                is WidgetAction.Decrement -> if (variable !is VariableDefinition.IntegerVariable && variable !is VariableDefinition.DoubleVariable) {
+                    warnings += WidgetValidatorWarning(
+                        "Action ${action.id} cannot increment variable $target. Only INT and DOUBLE variables support DECREMENT."
+                    )
+                }
+
+                is WidgetAction.Increment -> if (variable !is VariableDefinition.IntegerVariable && variable !is VariableDefinition.DoubleVariable) {
+                    warnings += WidgetValidatorWarning(
+                        "Action ${action.id} cannot increment variable $target. Only INT and DOUBLE variables support INCREMENT."
+                    )
+                }
+
+                is WidgetAction.OpenUrl -> if (action.url.isBlank()) {
+                    warnings += WidgetValidatorWarning("Invalid URL for type $action")
+                }
+
+                is WidgetAction.Reset -> Unit
+
+                is WidgetAction.SetValue -> when (variable) {
+                    is VariableDefinition.BooleanVariable -> if (action.value !is VariableValue.BooleanValue) warnings += WidgetValidatorWarning(
+                        "Action ${action.value} assigns a ${action.value::class.simpleName} value to BOOLEAN variable $target."
+                    )
+
+                    is VariableDefinition.DoubleVariable -> if (action.value !is VariableValue.DoubleValue) warnings += WidgetValidatorWarning(
+                        "Action ${action.value} assigns a ${action.value::class.simpleName} value to DOUBLE variable $target."
+                    )
+
+                    is VariableDefinition.IntegerVariable -> if (action.value !is VariableValue.IntValue) warnings += WidgetValidatorWarning(
+                        "Action ${action.value} assigns a ${action.value::class.simpleName} value to INT variable $target."
+                    )
+
+                    is VariableDefinition.StringVariable -> if (action.value !is VariableValue.StringValue) warnings += WidgetValidatorWarning(
+                        "Action ${action.value} assigns a ${action.value::class.simpleName} value to STRING variable $target."
+                    )
+
+                    null -> warnings += WidgetValidatorWarning("Invalid target $target")
+                }
+
+                is WidgetAction.Toggle -> if (variable !is VariableDefinition.BooleanVariable) {
+                    warnings += WidgetValidatorWarning(
+                        "Action ${action.id} can only target BOOLEAN variables. Variable $target is not BOOLEAN."
+                    )
+                }
+
+                else -> Unit
+            }
+
+        }
+
+        when (widget.data.updatePolicy) {
+            is UpdatePolicy.DailyReset -> when {
+                (widget.data.updatePolicy.minute !in 0..59) -> warnings += WidgetValidatorWarning(
+                    "Invalid minute value"
+                )
+
+                (widget.data.updatePolicy.hour !in 0..23) -> warnings += WidgetValidatorWarning(
+                    "Invalid hour value"
+                )
+            }
+
+            is UpdatePolicy.Periodic -> if (widget.data.updatePolicy.intervalMinutes <= 0) warnings += WidgetValidatorWarning(
+                "Invalid interval minutes"
+            )
+
+            UpdatePolicy.None -> Unit
         }
 
         validateUiNode(widget.ui, warnings, actionIds, variablesByName)

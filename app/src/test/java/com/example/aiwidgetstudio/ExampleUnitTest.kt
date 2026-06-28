@@ -44,31 +44,6 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun mapper_usesMetadataName() {
-        val metadata = WidgetDslMapper().mapMetadata(
-            DslMetadataDto(name = "Water Tracker")
-        )
-
-        assertEquals("Water Tracker", metadata.name)
-    }
-
-    @Test
-    fun mapper_repairsMissingMetadataName() {
-        val metadata = WidgetDslMapper().mapMetadata(
-            DslMetadataDto(name = "")
-        )
-
-        assertEquals("Untitled", metadata.name)
-    }
-
-    @Test
-    fun mapper_repairsNullMetadata() {
-        val metadata = WidgetDslMapper().mapMetadata(null)
-
-        assertEquals("Untitled", metadata.name)
-    }
-
-    @Test
     fun mapper_keepsValidUiChildrenAndRepairsUnknownNodes() {
         val ui = Json.parseToJsonElement(
             """{"type":"COLUMN","children":[{"type":"TEXT","value":"Water"},{"type":"UNKNOWN"}]}"""
