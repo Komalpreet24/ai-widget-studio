@@ -8,6 +8,7 @@ import androidx.room.Transaction
 import androidx.room.Update
 import com.example.aiwidgetstudio.data.local.entity.WidgetEntity
 import com.example.aiwidgetstudio.data.local.entity.WidgetStateEntity
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface WidgetDao {
@@ -31,9 +32,10 @@ interface WidgetDao {
         """
             SELECT * 
             FROM WidgetEntity
+            ORDER BY createdAt DESC
             """
     )
-    suspend fun getAllWidgets(): List<WidgetEntity>
+    fun observeWidgets(): Flow<List<WidgetEntity>>
 
     @Query(
     """

@@ -26,6 +26,28 @@ class WidgetValidator {
             warnings += WidgetValidatorWarning("Duplicate action id $it. Action ids must be unique.")
         }
 
+        widget.data.variables.forEach { variable ->
+            when (variable) {
+                is VariableDefinition.DoubleVariable -> validateNumericVariable(
+                    variable.name,
+                    variable.default,
+                    variable.min,
+                    variable.max,
+                    warnings
+                )
+
+                is VariableDefinition.IntegerVariable -> validateNumericVariable(
+                    variable.name,
+                    variable.default.toDouble(),
+                    variable.min?.toDouble(),
+                    variable.max?.toDouble(),
+                    warnings
+                )
+
+                else -> Unit
+            }
+        }
+
         widget.actions.forEach { action ->
             val target = when (action) {
                 is WidgetAction.Decrement -> action.target
@@ -37,40 +59,17 @@ class WidgetValidator {
                 is WidgetAction.OpenUrl -> null
             }
 
-            if (target != null && target !in variableNames) {
+            val variable = target?.let(variablesByName::get)
+
+            if (target != null && variable == null) {
                 warnings += WidgetValidatorWarning("Action '${action.id}' references unknown variable: $target")
-            }
-
-            val variable = variablesByName[target]
-
-            when (variable) {
-                is VariableDefinition.DoubleVariable -> when {
-                    (variable.max != null && variable.min != null && variable.min > variable.max) -> warnings += WidgetValidatorWarning(
-                        "Min greater than max"
-                    )
-
-                    ((variable.max != null && variable.default > variable.max) || (variable.min != null && variable.default < variable.min)) -> warnings += WidgetValidatorWarning(
-                        "Default value out of range"
-                    )
-                }
-
-                is VariableDefinition.IntegerVariable -> when {
-                    (variable.max != null && variable.min != null && variable.min > variable.max) -> warnings += WidgetValidatorWarning(
-                        "Min greater than max"
-                    )
-
-                    ((variable.max != null && variable.default > variable.max) || (variable.min != null && variable.default < variable.min)) -> warnings += WidgetValidatorWarning(
-                        "Default value out of range"
-                    )
-                }
-
-                else -> Unit
+                return@forEach
             }
 
             when (action) {
                 is WidgetAction.Decrement -> if (variable !is VariableDefinition.IntegerVariable && variable !is VariableDefinition.DoubleVariable) {
                     warnings += WidgetValidatorWarning(
-                        "Action ${action.id} cannot increment variable $target. Only INT and DOUBLE variables support DECREMENT."
+                        "Action ${action.id} cannot decrement variable $target. Only INT and DOUBLE variables support DECREMENT."
                     )
                 }
 
@@ -103,7 +102,7 @@ class WidgetValidator {
                         "Action ${action.value} assigns a ${action.value::class.simpleName} value to STRING variable $target."
                     )
 
-                    null -> warnings += WidgetValidatorWarning("Invalid target $target")
+                    null -> Unit
                 }
 
                 is WidgetAction.Toggle -> if (variable !is VariableDefinition.BooleanVariable) {
@@ -138,6 +137,22 @@ class WidgetValidator {
         validateUiNode(widget.ui, warnings, actionIds, variablesByName)
 
         return warnings
+    }
+
+    private fun validateNumericVariable(
+        name: String,
+        default: Double,
+        min: Double?,
+        max: Double?,
+        warnings: MutableList<WidgetValidatorWarning>
+    ) {
+        if (min != null && max != null && min > max) {
+            warnings += WidgetValidatorWarning("Variable '$name' has min greater than max")
+        }
+
+        if ((min != null && default < min) || (max != null && default > max)) {
+            warnings += WidgetValidatorWarning("Variable '$name' has default value outside its range")
+        }
     }
 
     private fun validateUiNode(

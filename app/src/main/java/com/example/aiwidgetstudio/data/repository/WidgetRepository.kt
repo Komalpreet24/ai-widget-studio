@@ -3,8 +3,9 @@ package com.example.aiwidgetstudio.data.repository
 import com.example.aiwidgetstudio.data.local.dao.WidgetDao
 import com.example.aiwidgetstudio.data.local.entity.WidgetEntity
 import com.example.aiwidgetstudio.data.local.entity.WidgetStateEntity
+import javax.inject.Inject
 
-class WidgetRepository(
+class WidgetRepository @Inject constructor(
     private val dao: WidgetDao
 ) {
 
@@ -15,6 +16,6 @@ class WidgetRepository(
 
     suspend fun getWidgetById(id: String) = dao.getWidgetById(id)
 
-    suspend fun getAllWidgets() = dao.getAllWidgets()
+    fun observeWidgets() = dao.observeWidgets()
 
 }
