@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">AI Widget Studio</string>
+    <string name="widget_description">AI Widget Studio home screen widget</string>
+    <string name="widget_loading">Loading widget…</string>
 </resources>
