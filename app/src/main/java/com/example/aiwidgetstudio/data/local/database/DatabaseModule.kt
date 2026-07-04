@@ -17,7 +17,9 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): WidgetDatabase =
-        Room.databaseBuilder(context, WidgetDatabase::class.java, "widget.db").build()
+        Room.databaseBuilder(context, WidgetDatabase::class.java, "widget.db")
+            .addMigrations(WidgetDatabase.MIGRATION_1_2)
+            .build()
 
     @Provides
     fun provideWidgetDao(database: WidgetDatabase): WidgetDao = database.widgetDao()

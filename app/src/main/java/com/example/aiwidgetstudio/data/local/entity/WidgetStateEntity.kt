@@ -17,5 +17,6 @@ import androidx.room.PrimaryKey
 data class WidgetStateEntity (
     @PrimaryKey
     val widgetId: String,
-    val stateJson: String
+    val stateJson: String,
+    val lastResetAt: Long
 )
