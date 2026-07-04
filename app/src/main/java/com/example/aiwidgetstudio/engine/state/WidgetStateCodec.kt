@@ -11,7 +11,6 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.put
 
 class WidgetStateCodec {
 
@@ -62,19 +61,5 @@ class WidgetStateCodec {
             ?.takeIf { value.isString }
             ?.let(VariableValue::StringValue)
             ?: variable.defaultValue()
-    }
-
-    private fun Int.clamp(min: Int?, max: Int?): Int = when {
-        min != null && max != null -> if (min <= max) coerceIn(min, max) else this
-        min != null -> coerceAtLeast(min)
-        max != null -> coerceAtMost(max)
-        else -> this
-    }
-
-    private fun Double.clamp(min: Double?, max: Double?): Double = when {
-        min != null && max != null -> if (min <= max) coerceIn(min, max) else this
-        min != null -> coerceAtLeast(min)
-        max != null -> coerceAtMost(max)
-        else -> this
     }
 }
