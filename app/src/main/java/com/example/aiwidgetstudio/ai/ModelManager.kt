@@ -2,9 +2,6 @@ package com.example.aiwidgetstudio.ai
 
 import android.content.Context
 import android.net.Uri
-import com.google.ai.edge.litertlm.Backend
-import com.google.ai.edge.litertlm.Engine
-import com.google.ai.edge.litertlm.EngineConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
@@ -91,16 +88,14 @@ class ModelManager @Inject constructor(
     fun activeModelPath(): String? = activeModelFile.takeIf { it.exists() }?.absolutePath
 
     private fun verifyModel(file: File) {
-        val config = EngineConfig(modelPath = file.absolutePath, backend = Backend.GPU())
-        try {
-            Engine(config).use { engine ->
-                engine.initialize()
-            }
-        } catch (_: Exception) {
-            val cpuConfig = EngineConfig(modelPath = file.absolutePath, backend = Backend.CPU())
-            Engine(cpuConfig).use { engine ->
-                engine.initialize()
-            }
+        if (file.length() < 1024) error("File is too small to be a valid model")
+        val header = ByteArray(16)
+        file.inputStream().use { it.read(header) }
+        val isLiteRt = header.take(4).map { it.toInt() and 0xFF } == listOf(0x20, 0x00, 0x00, 0x00) ||
+            String(header).contains("TFL3") ||
+            String(header).contains("FLAT")
+        if (!isLiteRt && file.length() < 10 * 1024 * 1024) {
+            error("File does not appear to be a valid .litertlm model")
         }
     }
 }
