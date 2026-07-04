@@ -6,8 +6,9 @@ import com.example.aiwidgetstudio.domain.model.VariableDefinition
 import com.example.aiwidgetstudio.domain.model.VariableValue
 import com.example.aiwidgetstudio.domain.model.WidgetAction
 import com.example.aiwidgetstudio.domain.model.WidgetDefinition
+import javax.inject.Inject
 
-class WidgetValidator {
+class WidgetValidator @Inject constructor() {
 
     private val bindingRegex = Regex("""^\{\{([A-Za-z_][A-Za-z0-9_]*)}}$""")
 

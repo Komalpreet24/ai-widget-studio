@@ -11,8 +11,9 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
+import javax.inject.Inject
 
-class WidgetStateCodec {
+class WidgetStateCodec @Inject constructor() {
 
     fun encode(state: WidgetState): String = buildJsonObject {
         state.values.forEach { (name, value) ->

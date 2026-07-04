@@ -10,8 +10,9 @@ import java.time.Instant
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
+import javax.inject.Inject
 
-class WidgetStateEngine {
+class WidgetStateEngine @Inject constructor() {
 
     fun createInitialState(definition: WidgetDefinition): WidgetState = WidgetState(
         values = definition.data.variables.associate { variable ->

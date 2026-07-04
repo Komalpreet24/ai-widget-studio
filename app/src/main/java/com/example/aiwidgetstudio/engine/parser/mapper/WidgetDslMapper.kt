@@ -23,8 +23,9 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
+import javax.inject.Inject
 
-class WidgetDslMapper {
+class WidgetDslMapper @Inject constructor() {
 
     fun map(widget: DslWidgetDto) = WidgetDefinition(
         mapMetadata(widget.metadata),

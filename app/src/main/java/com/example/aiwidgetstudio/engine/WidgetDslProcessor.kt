@@ -5,16 +5,17 @@ import com.example.aiwidgetstudio.engine.parser.WidgetDslParser
 import com.example.aiwidgetstudio.engine.parser.mapper.WidgetDslMapper
 import com.example.aiwidgetstudio.engine.validator.WidgetValidator
 import com.example.aiwidgetstudio.engine.validator.WidgetValidatorWarning
+import javax.inject.Inject
 
 data class ProcessedWidget(
     val definition: WidgetDefinition,
     val warnings: List<WidgetValidatorWarning>
 )
 
-class WidgetDslProcessor(
-    private val parser: WidgetDslParser = WidgetDslParser(),
-    private val mapper: WidgetDslMapper = WidgetDslMapper(),
-    private val validator: WidgetValidator = WidgetValidator()
+class WidgetDslProcessor @Inject constructor(
+    private val parser: WidgetDslParser,
+    private val mapper: WidgetDslMapper,
+    private val validator: WidgetValidator
 ) {
 
     fun process(rawJson: String): Result<ProcessedWidget> {

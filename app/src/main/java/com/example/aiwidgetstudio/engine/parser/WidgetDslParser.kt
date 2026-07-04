@@ -2,8 +2,9 @@ package com.example.aiwidgetstudio.engine.parser
 
 import com.example.aiwidgetstudio.engine.parser.dto.DslWidgetDto
 import kotlinx.serialization.json.Json
+import javax.inject.Inject
 
-class WidgetDslParser {
+class WidgetDslParser @Inject constructor() {
 
     private val json = Json {
         isLenient = true
