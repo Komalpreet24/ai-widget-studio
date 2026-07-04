@@ -2,9 +2,15 @@ package com.example.aiwidgetstudio.engine.state
 
 import com.example.aiwidgetstudio.domain.model.VariableDefinition
 import com.example.aiwidgetstudio.domain.model.VariableValue
+import java.time.Instant
 
 data class WidgetState(
     val values: Map<String, VariableValue>
+)
+
+data class WidgetReset(
+    val state: WidgetState,
+    val resetAt: Instant
 )
 
 internal fun VariableDefinition.defaultValue(): VariableValue = when (this) {

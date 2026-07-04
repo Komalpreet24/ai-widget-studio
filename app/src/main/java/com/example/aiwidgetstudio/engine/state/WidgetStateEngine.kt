@@ -2,16 +2,39 @@ package com.example.aiwidgetstudio.engine.state
 
 import com.example.aiwidgetstudio.domain.model.VariableDefinition
 import com.example.aiwidgetstudio.domain.model.VariableValue
+import com.example.aiwidgetstudio.domain.model.UpdatePolicy
 import com.example.aiwidgetstudio.domain.model.WidgetAction
 import com.example.aiwidgetstudio.domain.model.WidgetDefinition
+import java.time.Duration
+import java.time.Instant
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 
 class WidgetStateEngine {
 
     fun createInitialState(definition: WidgetDefinition): WidgetState = WidgetState(
         values = definition.data.variables.associate { variable ->
-            variable.name to variable.defaultValue()
+            val default = variable.defaultValue()
+            variable.name to (constrain(default, variable) ?: default)
         }
     )
+
+    fun resetIfDue(
+        definition: WidgetDefinition,
+        lastResetAt: Instant,
+        now: Instant,
+        zoneId: ZoneId
+    ): WidgetReset? {
+        val resetAt = when (val policy = definition.data.updatePolicy) {
+            UpdatePolicy.None -> return null
+            is UpdatePolicy.DailyReset -> latestDailyBoundary(policy, now, zoneId)
+            is UpdatePolicy.Periodic -> latestPeriodicBoundary(policy, lastResetAt, now)
+        } ?: return null
+
+        if (!resetAt.isAfter(lastResetAt)) return null
+        return WidgetReset(createInitialState(definition), resetAt)
+    }
 
     fun applyAction(
         definition: WidgetDefinition,
@@ -29,7 +52,7 @@ class WidgetStateEngine {
             is WidgetAction.OpenApp, is WidgetAction.OpenUrl -> return currentState
         }
 
-        val variable = definition.data.variables.find { it.name == target } ?: return currentState
+        val variable = definition.data.variables.findLast { it.name == target } ?: return currentState
         val currentValue = currentState.values[target] ?: return currentState
 
         val newValue = when (action) {
@@ -48,6 +71,40 @@ class WidgetStateEngine {
         } ?: return currentState
 
         return currentState.copy(values = currentState.values + (target to newValue))
+    }
+
+    private fun latestDailyBoundary(
+        policy: UpdatePolicy.DailyReset,
+        now: Instant,
+        zoneId: ZoneId
+    ): Instant? {
+        if (policy.hour !in 0..23 || policy.minute !in 0..59) return null
+
+        val zonedNow = now.atZone(zoneId)
+        val resetTime = LocalTime.of(policy.hour, policy.minute)
+        val today = zonedNow.toLocalDate().atTime(resetTime).atZone(zoneId).toInstant()
+
+        return if (today <= now) {
+            today
+        } else {
+            zonedNow.toLocalDate().minusDays(1).atTime(resetTime).atZone(zoneId).toInstant()
+        }
+    }
+
+    private fun latestPeriodicBoundary(
+        policy: UpdatePolicy.Periodic,
+        lastResetAt: Instant,
+        now: Instant
+    ): Instant? {
+        if (policy.intervalMinutes <= 0 || now <= lastResetAt) return null
+
+        val elapsedMinutes = Duration.between(lastResetAt, now).toMinutes()
+        if (elapsedMinutes < policy.intervalMinutes) return null
+
+        val completedMinutes = elapsedMinutes - (elapsedMinutes % policy.intervalMinutes)
+        return runCatching {
+            lastResetAt.plus(completedMinutes, ChronoUnit.MINUTES)
+        }.getOrNull()
     }
 
     private fun updateNumber(

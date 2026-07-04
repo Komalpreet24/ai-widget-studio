@@ -11,7 +11,6 @@ import com.example.aiwidgetstudio.domain.model.WidgetAlignment
 import com.example.aiwidgetstudio.domain.model.WidgetData
 import com.example.aiwidgetstudio.domain.model.WidgetDefinition
 import com.example.aiwidgetstudio.domain.model.WidgetMetadata
-import com.example.aiwidgetstudio.engine.parser.WidgetDslParser
 import com.example.aiwidgetstudio.engine.parser.dto.DslDataDto
 import com.example.aiwidgetstudio.engine.parser.dto.DslMetadataDto
 import com.example.aiwidgetstudio.engine.parser.dto.DslWidgetDto
@@ -27,11 +26,7 @@ import kotlinx.serialization.json.longOrNull
 
 class WidgetDslMapper {
 
-    fun parseWidget(rawJson: String): Result<WidgetDefinition> {
-        return WidgetDslParser().parse(rawJson).map { map(it) }
-    }
-
-    private fun map(widget: DslWidgetDto) = WidgetDefinition(
+    fun map(widget: DslWidgetDto) = WidgetDefinition(
         mapMetadata(widget.metadata),
         mapData(widget.data),
         mapActions(widget.actions),

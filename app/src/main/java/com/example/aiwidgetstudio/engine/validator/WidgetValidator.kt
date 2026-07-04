@@ -159,19 +159,43 @@ class WidgetValidator {
         ui: UiNode,
         warnings: MutableList<WidgetValidatorWarning>,
         actionIds: List<String>,
-        variableByNames: Map<String, VariableDefinition>
-    ) {
+        variableByNames: Map<String, VariableDefinition>,
+        depth: Int = 1,
+        nodesVisited: Int = 0
+    ): Int {
+        if (nodesVisited >= MAX_UI_NODES) {
+            if (nodesVisited == MAX_UI_NODES) {
+                warnings += WidgetValidatorWarning("UI exceeds maximum node count of $MAX_UI_NODES")
+            }
+            return MAX_UI_NODES + 1
+        }
+
+        val updatedNodeCount = nodesVisited + 1
+        if (depth > MAX_UI_DEPTH) {
+            warnings += WidgetValidatorWarning("UI exceeds maximum depth of $MAX_UI_DEPTH")
+            return updatedNodeCount
+        }
+
         when (ui) {
-            is UiNode.Box -> validateUiNode(ui.child, warnings, actionIds, variableByNames)
+            is UiNode.Box -> return validateUiNode(
+                ui.child, warnings, actionIds, variableByNames, depth + 1, updatedNodeCount
+            )
+
             is UiNode.Button -> if (ui.action.isBlank()) {
                 warnings += WidgetValidatorWarning("Button missing action id")
             } else if (ui.action !in actionIds) {
                 warnings += WidgetValidatorWarning("Action id ${ui.action} related to button missing definition")
             }
 
-            is UiNode.Card -> validateUiNode(ui.child, warnings, actionIds, variableByNames)
-            is UiNode.Column -> ui.children.forEach {
-                validateUiNode(it, warnings, actionIds, variableByNames)
+            is UiNode.Card -> return validateUiNode(
+                ui.child, warnings, actionIds, variableByNames, depth + 1, updatedNodeCount
+            )
+
+            is UiNode.Column -> {
+                warnIfTooManyChildren(ui.children.size, warnings)
+                return ui.children.take(MAX_UI_CHILDREN).fold(updatedNodeCount) { count, child ->
+                    validateUiNode(child, warnings, actionIds, variableByNames, depth + 1, count)
+                }
             }
 
             is UiNode.Icon -> if (ui.icon.isBlank()) {
@@ -182,8 +206,11 @@ class WidgetValidator {
                 ui, warnings, variableByNames
             )
 
-            is UiNode.Row -> ui.children.forEach {
-                validateUiNode(it, warnings, actionIds, variableByNames)
+            is UiNode.Row -> {
+                warnIfTooManyChildren(ui.children.size, warnings)
+                return ui.children.take(MAX_UI_CHILDREN).fold(updatedNodeCount) { count, child ->
+                    validateUiNode(child, warnings, actionIds, variableByNames, depth + 1, count)
+                }
             }
 
             is UiNode.Text -> if (ui.value.isBlank()) {
@@ -191,6 +218,19 @@ class WidgetValidator {
             }
 
             else -> Unit
+        }
+
+        return updatedNodeCount
+    }
+
+    private fun warnIfTooManyChildren(
+        childCount: Int,
+        warnings: MutableList<WidgetValidatorWarning>
+    ) {
+        if (childCount > MAX_UI_CHILDREN) {
+            warnings += WidgetValidatorWarning(
+                "Layout has $childCount children; only the first $MAX_UI_CHILDREN will render"
+            )
         }
     }
 
@@ -246,5 +286,11 @@ class WidgetValidator {
 
     private fun extractVariableName(value: String): String? {
         return bindingRegex.find(value)?.groupValues[1]
+    }
+
+    private companion object {
+        const val MAX_UI_DEPTH = 10
+        const val MAX_UI_NODES = 100
+        const val MAX_UI_CHILDREN = 20
     }
 }
