@@ -156,7 +156,8 @@ class WidgetRuntime @Inject constructor(
                 }
             } catch (error: CancellationException) {
                 throw error
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                android.util.Log.e("WidgetRuntime", "loadWidget failed for $widgetId", error)
                 null
             }
         }

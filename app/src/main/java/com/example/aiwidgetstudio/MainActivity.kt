@@ -605,17 +605,24 @@ private fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall
                     )
                     Text("Steps:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                    Text("1. On your computer, go to ai.google.dev/edge/litert/models", style = MaterialTheme.typography.bodySmall)
-                    Text("2. Download the Gemma 3n E2B int4 .litertlm file.", style = MaterialTheme.typography.bodySmall)
-                    Text("3. Transfer the file to your phone (via USB, Google Drive, or any file app).", style = MaterialTheme.typography.bodySmall)
-                    Text("4. Tap \"Import model\" below and select the .litertlm file.", style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(0.dp))
+                    Text("1. Tap \"Download model\" below to open the download page.", style = MaterialTheme.typography.bodySmall)
+                    Text("2. Download the .litertlm file to your device.", style = MaterialTheme.typography.bodySmall)
+                    Text("3. Once downloaded, tap \"Import model\" and select the file.", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(4.dp))
                     Text(
-                        "Without a model you can still create widgets by writing or pasting DSL JSON manually.",
+                        "Without a model you can still create widgets by writing or pasting DSL JSON manually in the editor.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+
+            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+            OutlinedButton(
+                onClick = { uriHandler.openUri("https://ai.google.dev/edge/litert/models") },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Download model from Google AI Edge")
             }
         }
 
