@@ -1,6 +1,7 @@
 package com.example.aiwidgetstudio.data.repository
 
 import com.example.aiwidgetstudio.data.local.dao.WidgetDao
+import com.example.aiwidgetstudio.data.local.dao.WidgetListEntry
 import com.example.aiwidgetstudio.data.local.dao.WidgetWithState
 import com.example.aiwidgetstudio.data.local.entity.WidgetEntity
 import com.example.aiwidgetstudio.data.local.entity.WidgetInstanceEntity
@@ -26,6 +27,10 @@ class WidgetRepository @Inject constructor(
 
     fun observeWidgets(): Flow<List<WidgetEntity>> {
         return dao.observeWidgets()
+    }
+
+    fun observeWidgetListEntries(): Flow<List<WidgetListEntry>> {
+        return dao.observeWidgetListEntries()
     }
 
     suspend fun getWidgetWithState(widgetId: String): WidgetWithState? {

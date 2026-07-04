@@ -62,6 +62,15 @@ interface WidgetDao {
     @Query("SELECT * FROM WidgetEntity ORDER BY createdAt DESC")
     fun observeWidgets(): Flow<List<WidgetEntity>>
 
+    @Query(
+        """
+        SELECT WidgetEntity.*,
+        (SELECT COUNT(*) FROM WidgetInstanceEntity WHERE widgetId = WidgetEntity.widgetId) AS placementCount
+        FROM WidgetEntity ORDER BY createdAt DESC
+        """
+    )
+    fun observeWidgetListEntries(): Flow<List<WidgetListEntry>>
+
     @Query("SELECT * FROM WidgetEntity WHERE widgetId = :widgetId")
     suspend fun getWidgetById(widgetId: String): WidgetEntity?
 

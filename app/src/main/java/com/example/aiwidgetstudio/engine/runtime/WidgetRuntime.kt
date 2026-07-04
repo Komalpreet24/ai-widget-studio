@@ -10,6 +10,7 @@ import com.example.aiwidgetstudio.engine.state.WidgetState
 import com.example.aiwidgetstudio.engine.state.WidgetStateCodec
 import com.example.aiwidgetstudio.engine.state.WidgetStateEngine
 import com.example.aiwidgetstudio.engine.validator.WidgetValidatorWarning
+import com.example.aiwidgetstudio.glance.WidgetRefresh
 import java.time.Clock
 import java.time.Instant
 import java.util.UUID
@@ -35,6 +36,7 @@ class WidgetRuntime @Inject constructor(
     private val stateEngine: WidgetStateEngine,
     private val stateCodec: WidgetStateCodec,
     private val repository: WidgetRepository,
+    private val widgetRefresh: WidgetRefresh,
     private val clock: Clock
 ) {
 
@@ -113,6 +115,7 @@ class WidgetRuntime @Inject constructor(
                 )
 
                 repository.updateWidget(updatedWidget, updatedStateEntity)
+                widgetRefresh.refreshWidget(widgetId)
                 Result.success(processed)
             } catch (error: CancellationException) {
                 throw error
@@ -189,6 +192,7 @@ class WidgetRuntime @Inject constructor(
                                 ?: stored.state.lastResetAt
                         )
                     )
+                    widgetRefresh.refreshWidget(widgetId)
                 }
 
                 stateChanged
@@ -219,12 +223,19 @@ class WidgetRuntime @Inject constructor(
                         lastResetAt = reset.resetAt.toEpochMilli()
                     )
                 )
+                widgetRefresh.refreshWidget(widgetId)
                 true
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
                 false
             }
+        }
+    }
+
+    suspend fun deleteWidget(widgetId: String): Boolean {
+        return stateMutex.withLock {
+            repository.deleteWidget(widgetId)
         }
     }
 

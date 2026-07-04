@@ -248,7 +248,6 @@ class WidgetDslMapper @Inject constructor() {
 
     private fun fallbackUiNode(): UiNode = UiNode.Text(UiNodeStyle(), "Unable to render widget")
 
-    //JSON Helper Functions
     private fun JsonElement.asObjectOrNull(): JsonObject? {
         return this as? JsonObject
     }
