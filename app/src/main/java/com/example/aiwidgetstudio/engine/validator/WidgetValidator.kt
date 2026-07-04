@@ -10,7 +10,7 @@ import javax.inject.Inject
 
 class WidgetValidator @Inject constructor() {
 
-    private val bindingRegex = Regex("""^\{\{([A-Za-z_][A-Za-z0-9_]*)}}$""")
+    private val bindingRegex = Regex("""^\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}$""")
 
     fun validate(widget: WidgetDefinition): List<WidgetValidatorWarning> {
         val warnings = mutableListOf<WidgetValidatorWarning>()

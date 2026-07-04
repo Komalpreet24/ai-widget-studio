@@ -5,7 +5,7 @@ import com.example.aiwidgetstudio.engine.state.WidgetState
 
 object BindingResolver {
 
-    private val bindingRegex = Regex("""^\{\{([A-Za-z_][A-Za-z0-9_]*)}}$""")
+    private val bindingRegex = Regex("""^\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}$""")
 
     fun resolveText(value: String, state: WidgetState): String {
         val binding = extractVariableName(value) ?: return value
