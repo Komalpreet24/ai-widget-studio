@@ -39,7 +39,6 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -65,7 +64,6 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.example.aiwidgetstudio.ai.DownloadState
 import com.example.aiwidgetstudio.data.local.dao.WidgetListEntry
 import com.example.aiwidgetstudio.domain.model.VariableValue
 import com.example.aiwidgetstudio.domain.model.WidgetAction
@@ -74,7 +72,6 @@ import com.example.aiwidgetstudio.presentation.AppScreen
 import com.example.aiwidgetstudio.presentation.MainUiState
 import com.example.aiwidgetstudio.presentation.MainViewModel
 import com.example.aiwidgetstudio.presentation.OperationStatus
-import com.example.aiwidgetstudio.presentation.ParsedSummary
 import com.example.aiwidgetstudio.ui.theme.AIWidgetStudioTheme
 import dagger.hilt.android.AndroidEntryPoint
 import java.text.DateFormat
@@ -234,8 +231,6 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
             composable("settings") {
                 SettingsScreen(
                     state = state,
-                    onDownload = viewModel::downloadModel,
-                    onCancelDownload = viewModel::cancelDownload,
                     onImport = viewModel::importModel,
                     onRemove = viewModel::removeModel
                 )
@@ -620,8 +615,6 @@ private fun DetailScreen(
 @Composable
 private fun SettingsScreen(
     state: MainUiState,
-    onDownload: () -> Unit,
-    onCancelDownload: () -> Unit,
     onImport: (android.net.Uri) -> Unit,
     onRemove: () -> Unit
 ) {
@@ -629,7 +622,7 @@ private fun SettingsScreen(
         uri?.let(onImport)
     }
     val settings = state.modelSettings
-    val downloadProgress = settings.downloadProgress
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
 
     Column(
         modifier = Modifier
@@ -656,7 +649,7 @@ private fun SettingsScreen(
                     Text("${settings.sizeBytes / (1024 * 1024)} MB", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     Text(
-                        "Download or import a model to enable AI widget creation.",
+                        "Import a .litertlm model file to enable AI widget creation.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -669,64 +662,34 @@ private fun SettingsScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Gemma 3n E2B (int4)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Text("~2 GB download · Runs on-device with GPU", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Recommended for Pixel 8 and similar devices. All processing stays on your phone — nothing is sent to the cloud.", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-
-            when (downloadProgress.state) {
-                DownloadState.Downloading -> {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (downloadProgress.totalBytes > 0) {
-                            LinearProgressIndicator(
-                                progress = { downloadProgress.progress },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        } else {
-                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                formatDownloadSize(downloadProgress.bytesDownloaded, downloadProgress.totalBytes),
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            TextButton(onClick = onCancelDownload) { Text("Cancel") }
-                        }
-                    }
-                }
-                DownloadState.Failed -> {
-                    Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.small) {
-                        Text(
-                            "Download failed. Check your connection and try again.",
-                            modifier = Modifier.padding(12.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                    }
-                    Button(onClick = onDownload, modifier = Modifier.fillMaxWidth()) {
-                        Text("Retry download")
-                    }
-                }
-                else -> {
-                    Button(onClick = onDownload, modifier = Modifier.fillMaxWidth()) {
-                        Text("Download model")
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("How to get the model", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "The Gemma 3n model (~2 GB) is hosted on Kaggle and requires a free account to download.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text("Steps:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("1. Tap \"Open Kaggle\" below — sign in or create a free account.", style = MaterialTheme.typography.bodySmall)
+                        Text("2. Download the Gemma 3n E2B IT int4 .litertlm file to your phone.", style = MaterialTheme.typography.bodySmall)
+                        Text("3. Come back here and tap \"Import model file\" to select it.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
 
-            Text("— or —", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-            OutlinedButton(
-                onClick = { launcher.launch(arrayOf("*/*")) },
+            Button(
+                onClick = { uriHandler.openUri("https://www.kaggle.com/models/google/gemma-3n/tfLite") },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Import .litertlm file manually")
+                Text("Open Kaggle to download model")
+            }
+
+            Button(
+                onClick = { launcher.launch(arrayOf("*/*")) },
+                enabled = settings.status != OperationStatus.Loading,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Import model file")
             }
         }
 

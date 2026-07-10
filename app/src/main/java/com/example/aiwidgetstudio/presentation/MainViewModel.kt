@@ -4,10 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.aiwidgetstudio.ai.AiOutputExtractor
-import com.example.aiwidgetstudio.ai.DownloadProgress
-import com.example.aiwidgetstudio.ai.DownloadState
 import com.example.aiwidgetstudio.ai.LocalWidgetDslGenerator
-import com.example.aiwidgetstudio.ai.ModelDownloader
 import com.example.aiwidgetstudio.ai.ModelManager
 import com.example.aiwidgetstudio.data.local.dao.WidgetListEntry
 import com.example.aiwidgetstudio.data.repository.WidgetRepository
@@ -45,8 +42,7 @@ data class ModelSettingsState(
     val fileName: String = "",
     val sizeBytes: Long = 0,
     val ready: Boolean = false,
-    val status: OperationStatus = OperationStatus.Idle,
-    val downloadProgress: DownloadProgress = DownloadProgress()
+    val status: OperationStatus = OperationStatus.Idle
 )
 
 data class MainUiState(
@@ -73,7 +69,6 @@ class MainViewModel @Inject constructor(
     private val repository: WidgetRepository,
     private val generator: LocalWidgetDslGenerator,
     private val modelManager: ModelManager,
-    private val modelDownloader: ModelDownloader,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -92,7 +87,6 @@ class MainViewModel @Inject constructor(
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
     private var generateJob: Job? = null
-    private var downloadJob: Job? = null
 
     init {
         viewModelScope.launch { refreshModelInfo() }
@@ -309,27 +303,8 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    fun downloadModel() {
-        if (downloadJob?.isActive == true) return
-        downloadJob = viewModelScope.launch {
-            modelDownloader.downloadModel(MODEL_DOWNLOAD_URL).collect { progress ->
-                _uiState.update {
-                    it.copy(modelSettings = it.modelSettings.copy(downloadProgress = progress))
-                }
-                if (progress.state == DownloadState.Completed) {
-                    generator.invalidateEngine()
-                    refreshModelInfo()
-                }
-            }
-        }
-    }
-
     fun cancelDownload() {
-        downloadJob?.cancel()
-        modelDownloader.cancelDownload()
-        _uiState.update {
-            it.copy(modelSettings = it.modelSettings.copy(downloadProgress = DownloadProgress()))
-        }
+        // no-op: download is browser-based
     }
 
     fun importModel(uri: android.net.Uri) {
@@ -406,6 +381,5 @@ class MainViewModel @Inject constructor(
     companion object {
         private const val KEY_PROMPT = "prompt"
         private const val KEY_EDITOR_JSON = "editor_json"
-        private const val MODEL_DOWNLOAD_URL = "https://storage.googleapis.com/litert-community/gemma-3n-E2B-it-int4.litertlm"
     }
 }
