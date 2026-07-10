@@ -62,7 +62,8 @@ object WidgetGlanceContent {
         Column(
             modifier = GlanceModifier
                 .fillMaxSize()
-                .padding(8.dp),
+                .background(Color(0xFFFAFAFA))
+                .padding(12.dp),
             verticalAlignment = Alignment.Vertical.Top,
             horizontalAlignment = Alignment.Horizontal.Start
         ) {
@@ -196,20 +197,37 @@ object WidgetGlanceContent {
                         )
                     )
                 }
-                val btnColor = parseColor(node.style.textColor)
-                Text(
-                    text = node.text,
-                    modifier = clickModifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    style = if (btnColor != null) TextStyle(color = ColorProvider(btnColor), fontWeight = FontWeight.Medium)
-                        else TextStyle(fontWeight = FontWeight.Medium)
-                )
+                val btnBg = parseColor(node.style.backgroundColor) ?: Color(0xFF1976D2)
+                val btnTextColor = parseColor(node.style.textColor) ?: Color.White
+                Box(
+                    modifier = clickModifier
+                        .background(btnBg)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = node.text,
+                        style = TextStyle(
+                            color = ColorProvider(btnTextColor),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    )
+                }
             }
 
             is UiNode.Progress -> {
-                LinearProgressIndicator(
-                    progress = BindingResolver.progressRatio(node.current, node.max, state),
-                    modifier = modifier.fillMaxWidth()
-                )
+                val ratio = BindingResolver.progressRatio(node.current, node.max, state)
+                val trackColor = parseColor(node.style.backgroundColor) ?: Color(0xFFE0E0E0)
+                val indicatorColor = parseColor(node.style.textColor) ?: Color(0xFF4CAF50)
+                Column(modifier = modifier.fillMaxWidth()) {
+                    LinearProgressIndicator(
+                        progress = ratio,
+                        modifier = GlanceModifier.fillMaxWidth().height(8.dp),
+                        color = ColorProvider(indicatorColor),
+                        backgroundColor = ColorProvider(trackColor)
+                    )
+                }
             }
 
             is UiNode.Spacer -> {
@@ -321,5 +339,6 @@ class WidgetActionCallback : ActionCallback {
             WidgetRuntimeEntryPoint::class.java
         )
         entryPoint.widgetRuntime().applyAction(widgetId, actionId)
+        WidgetGlanceAppWidget().update(context, glanceId)
     }
 }
