@@ -4,8 +4,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.aiwidgetstudio.ai.AiOutputExtractor
-import com.example.aiwidgetstudio.ai.LocalWidgetDslGenerator
-import com.example.aiwidgetstudio.ai.ModelManager
+import com.example.aiwidgetstudio.ai.GenerationProgress
+import com.example.aiwidgetstudio.ai.GeminiWidgetGenerator
 import com.example.aiwidgetstudio.data.local.dao.WidgetListEntry
 import com.example.aiwidgetstudio.data.repository.WidgetRepository
 import com.example.aiwidgetstudio.domain.model.UiNode
@@ -24,25 +24,13 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class AppScreen {
-    LIST,
-    EDITOR,
-    DETAIL,
-    SETTINGS
-}
+enum class AppScreen { LIST, EDITOR, DETAIL }
 
 data class ParsedSummary(
     val name: String = "",
     val variableCount: Int = 0,
     val actionCount: Int = 0,
     val uiNodeCount: Int = 0
-)
-
-data class ModelSettingsState(
-    val fileName: String = "",
-    val sizeBytes: Long = 0,
-    val ready: Boolean = false,
-    val status: OperationStatus = OperationStatus.Idle
 )
 
 data class MainUiState(
@@ -59,7 +47,6 @@ data class MainUiState(
     val validateStatus: OperationStatus = OperationStatus.Idle,
     val saveStatus: OperationStatus = OperationStatus.Idle,
     val generateStatus: OperationStatus = OperationStatus.Idle,
-    val modelSettings: ModelSettingsState = ModelSettingsState(),
     val error: String? = null
 )
 
@@ -67,8 +54,7 @@ data class MainUiState(
 class MainViewModel @Inject constructor(
     private val runtime: WidgetRuntime,
     private val repository: WidgetRepository,
-    private val generator: LocalWidgetDslGenerator,
-    private val modelManager: ModelManager,
+    private val generator: GeminiWidgetGenerator,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -88,15 +74,10 @@ class MainViewModel @Inject constructor(
 
     private var generateJob: Job? = null
 
-    init {
-        viewModelScope.launch { refreshModelInfo() }
-    }
-
     fun openCreate() {
         _uiState.value = MainUiState(
             screen = AppScreen.EDITOR,
-            prompt = _uiState.value.prompt,
-            modelSettings = _uiState.value.modelSettings
+            prompt = _uiState.value.prompt
         )
         persistEditorState()
     }
@@ -190,7 +171,6 @@ class MainViewModel @Inject constructor(
                             _uiState.update { it.copy(editorJson = json) }
                             savedStateHandle[KEY_EDITOR_JSON] = json
                         }
-                        _uiState.update { it.copy(generateStatus = OperationStatus.Loading) }
                     }
                     OperationStatus.Success -> {
                         val json = AiOutputExtractor.extractWidgetJson(progress.partialText)
@@ -201,9 +181,7 @@ class MainViewModel @Inject constructor(
                         _uiState.update { it.copy(generateStatus = OperationStatus.Success) }
                     }
                     is OperationStatus.Error -> {
-                        _uiState.update {
-                            it.copy(generateStatus = status, error = status.message)
-                        }
+                        _uiState.update { it.copy(generateStatus = status, error = status.message) }
                     }
                     OperationStatus.Idle -> Unit
                 }
@@ -249,8 +227,7 @@ class MainViewModel @Inject constructor(
                 MainUiState(
                     screen = AppScreen.DETAIL,
                     selectedWidgetId = widgetId,
-                    validateStatus = OperationStatus.Loading,
-                    modelSettings = it.modelSettings
+                    validateStatus = OperationStatus.Loading
                 )
             }
             reloadDetail(widgetId)
@@ -269,13 +246,8 @@ class MainViewModel @Inject constructor(
         val widgetId = _uiState.value.selectedWidgetId ?: return
         viewModelScope.launch {
             val deleted = runtime.deleteWidget(widgetId)
-            if (deleted) {
-                showList()
-            } else {
-                _uiState.update {
-                    it.copy(error = "Remove this widget from the home screen before deleting it")
-                }
-            }
+            if (deleted) showList()
+            else _uiState.update { it.copy(error = "Remove this widget from the home screen before deleting it") }
         }
     }
 
@@ -283,69 +255,7 @@ class MainViewModel @Inject constructor(
         _uiState.update {
             MainUiState(
                 prompt = savedStateHandle.get<String>(KEY_PROMPT).orEmpty(),
-                editorJson = savedStateHandle.get<String>(KEY_EDITOR_JSON).orEmpty(),
-                modelSettings = it.modelSettings
-            )
-        }
-    }
-
-    fun showSettings() {
-        viewModelScope.launch {
-            refreshModelInfo()
-            _uiState.update {
-                MainUiState(
-                    screen = AppScreen.SETTINGS,
-                    modelSettings = it.modelSettings.copy(status = OperationStatus.Idle),
-                    prompt = savedStateHandle.get<String>(KEY_PROMPT).orEmpty(),
-                    editorJson = savedStateHandle.get<String>(KEY_EDITOR_JSON).orEmpty()
-                )
-            }
-        }
-    }
-
-    fun cancelDownload() {
-        // no-op: download is browser-based
-    }
-
-    fun importModel(uri: android.net.Uri) {
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(modelSettings = it.modelSettings.copy(status = OperationStatus.Loading))
-            }
-            val result = modelManager.importModel(uri)
-            generator.invalidateEngine()
-            refreshModelInfo()
-            _uiState.update {
-                it.copy(
-                    modelSettings = it.modelSettings.copy(
-                        status = result.fold(
-                            onSuccess = { OperationStatus.Success },
-                            onFailure = { error -> OperationStatus.Error(error.message ?: "Import failed") }
-                        )
-                    ),
-                    error = result.exceptionOrNull()?.message
-                )
-            }
-        }
-    }
-
-    fun removeModel() {
-        viewModelScope.launch {
-            modelManager.removeModel()
-            generator.invalidateEngine()
-            refreshModelInfo()
-        }
-    }
-
-    private suspend fun refreshModelInfo() {
-        val info = modelManager.getModelInfo()
-        _uiState.update {
-            it.copy(
-                modelSettings = it.modelSettings.copy(
-                    fileName = info.fileName,
-                    sizeBytes = info.sizeBytes,
-                    ready = info.ready
-                )
+                editorJson = savedStateHandle.get<String>(KEY_EDITOR_JSON).orEmpty()
             )
         }
     }
@@ -368,14 +278,12 @@ class MainViewModel @Inject constructor(
         savedStateHandle[KEY_EDITOR_JSON] = _uiState.value.editorJson
     }
 
-    private fun countUiNodes(node: UiNode): Int {
-        return when (node) {
-            is UiNode.Box -> 1 + countUiNodes(node.child)
-            is UiNode.Card -> 1 + countUiNodes(node.child)
-            is UiNode.Column -> 1 + node.children.sumOf { countUiNodes(it) }
-            is UiNode.Row -> 1 + node.children.sumOf { countUiNodes(it) }
-            else -> 1
-        }
+    private fun countUiNodes(node: UiNode): Int = when (node) {
+        is UiNode.Box -> 1 + countUiNodes(node.child)
+        is UiNode.Card -> 1 + countUiNodes(node.child)
+        is UiNode.Column -> 1 + node.children.sumOf { countUiNodes(it) }
+        is UiNode.Row -> 1 + node.children.sumOf { countUiNodes(it) }
+        else -> 1
     }
 
     companion object {
