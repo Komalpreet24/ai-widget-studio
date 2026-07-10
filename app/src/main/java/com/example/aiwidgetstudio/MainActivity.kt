@@ -181,8 +181,13 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
                     widgets = widgets,
                     modelReady = state.modelSettings.ready,
                     onCreate = {
-                        viewModel.openCreate()
-                        navController.navigate("editor")
+                        if (state.modelSettings.ready) {
+                            viewModel.openCreate()
+                            navController.navigate("editor")
+                        } else {
+                            viewModel.showSettings()
+                            navController.navigate("settings")
+                        }
                     },
                     onOpen = { widgetId ->
                         viewModel.openDetail(widgetId)
@@ -249,6 +254,11 @@ private fun WidgetListScreen(
     onDelete: (String) -> Unit,
     onSetupModel: () -> Unit
 ) {
+    if (!modelReady && widgets.isEmpty()) {
+        OnboardingScreen(onSetupModel = onSetupModel)
+        return
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         if (widgets.isEmpty()) {
             Column(
@@ -261,17 +271,11 @@ private fun WidgetListScreen(
                 Text("No widgets yet", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Describe a widget in plain English and AI will create it for your home screen.",
+                    "Tap the button below to create your first AI-powered home screen widget.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
-                if (!modelReady) {
-                    Spacer(Modifier.height(20.dp))
-                    FilledTonalButton(onClick = onSetupModel) {
-                        Text("Set up AI model first")
-                    }
-                }
             }
         } else {
             LazyColumn(
@@ -300,6 +304,44 @@ private fun WidgetListScreen(
                 .align(Alignment.BottomEnd)
                 .padding(20.dp)
         )
+    }
+}
+
+@Composable
+private fun OnboardingScreen(onSetupModel: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("Welcome to AI Widget Studio", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "Describe any widget in plain English and AI will build it for your home screen — all on-device, no cloud.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(32.dp))
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("First, set up the AI model", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "A one-time ~2 GB download. Once installed, everything runs on your device.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        Button(onClick = onSetupModel, modifier = Modifier.fillMaxWidth()) {
+            Text("Set up AI model")
+        }
     }
 }
 
