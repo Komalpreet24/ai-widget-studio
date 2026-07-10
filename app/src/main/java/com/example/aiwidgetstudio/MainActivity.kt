@@ -679,19 +679,21 @@ private fun SettingsScreen(
             when (downloadProgress.state) {
                 DownloadState.Downloading -> {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        LinearProgressIndicator(
-                            progress = { downloadProgress.progress },
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        if (downloadProgress.totalBytes > 0) {
+                            LinearProgressIndicator(
+                                progress = { downloadProgress.progress },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                if (downloadProgress.totalBytes > 0)
-                                    "${downloadProgress.bytesDownloaded / (1024 * 1024)} / ${downloadProgress.totalBytes / (1024 * 1024)} MB"
-                                else "Downloading…",
+                                formatDownloadSize(downloadProgress.bytesDownloaded, downloadProgress.totalBytes),
                                 style = MaterialTheme.typography.bodySmall
                             )
                             TextButton(onClick = onCancelDownload) { Text("Cancel") }
@@ -773,6 +775,18 @@ private fun formatActionLabel(action: WidgetAction): String {
     return id.replace(Regex("([a-z])([A-Z])"), "$1 $2")
         .replace("_", " ")
         .replaceFirstChar { it.uppercase() }
+}
+
+private fun formatDownloadSize(downloaded: Long, total: Long): String {
+    fun Long.toKb() = this / 1024
+    fun Long.toMb() = this / (1024 * 1024)
+    return if (total <= 0) {
+        if (downloaded > 0) "${downloaded.toKb()} KB downloaded…" else "Starting download…"
+    } else if (total >= 1024 * 1024) {
+        "${downloaded.toMb()} / ${total.toMb()} MB"
+    } else {
+        "${downloaded.toKb()} / ${total.toKb()} KB"
+    }
 }
 
 private fun formatDate(timestamp: Long): String =
