@@ -1,6 +1,5 @@
 package com.example.aiwidgetstudio.ai
 
-import com.example.aiwidgetstudio.BuildConfig
 import com.example.aiwidgetstudio.engine.WidgetDslProcessor
 import com.example.aiwidgetstudio.presentation.OperationStatus
 import com.google.ai.client.generativeai.GenerativeModel
@@ -18,23 +17,29 @@ data class GenerationProgress(
 
 @Singleton
 class GeminiWidgetGenerator @Inject constructor(
-    private val processor: WidgetDslProcessor
-) {
-    private val model = GenerativeModel(
-        modelName = "gemini-2.0-flash",
-        apiKey = BuildConfig.GEMINI_API_KEY,
-        generationConfig = generationConfig {
-            temperature = 0.2f
-            topK = 20
-            topP = 0.9f
-            responseMimeType = "application/json"
-        },
-        systemInstruction = content { text(SYSTEM_PROMPT) }
-    )
+    private val processor: WidgetDslProcessor,
+    private val preference: GeneratorPreference
+) : WidgetGenerator {
 
-    fun generate(prompt: String): Flow<GenerationProgress> = flow {
+    override fun generate(prompt: String): Flow<GenerationProgress> = flow {
         emit(GenerationProgress(status = OperationStatus.Loading))
+        val apiKey = preference.geminiApiKey
+        if (apiKey.isBlank()) {
+            emit(GenerationProgress(status = OperationStatus.Error("Enter a Gemini API key in Settings")))
+            return@flow
+        }
         try {
+            val model = GenerativeModel(
+                modelName = "gemini-2.0-flash",
+                apiKey = apiKey,
+                generationConfig = generationConfig {
+                    temperature = 0.2f
+                    topK = 20
+                    topP = 0.9f
+                    responseMimeType = "application/json"
+                },
+                systemInstruction = content { text(SYSTEM_PROMPT) }
+            )
             val builder = StringBuilder()
             model.generateContentStream(content { text("Create a widget for: $prompt") })
                 .collect { chunk ->

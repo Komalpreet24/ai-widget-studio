@@ -5,8 +5,10 @@ import android.content.ComponentName
 import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
@@ -41,6 +43,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -48,19 +53,26 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.example.aiwidgetstudio.ai.GeneratorMode
 import com.example.aiwidgetstudio.data.local.dao.WidgetListEntry
 import com.example.aiwidgetstudio.domain.model.VariableValue
 import com.example.aiwidgetstudio.domain.model.WidgetAction
@@ -115,6 +127,7 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
             AppScreen.LIST -> "list"
             AppScreen.EDITOR -> "editor"
             AppScreen.DETAIL -> state.selectedWidgetId?.let { "detail/$it" } ?: "list"
+            AppScreen.SETTINGS -> "settings"
         }
         if (navController.currentDestination?.route != route) {
             navController.navigate(route) {
@@ -145,9 +158,15 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                actions = {
+                    if (state.screen == AppScreen.LIST) {
+                        TextButton(onClick = {
+                            viewModel.showSettings()
+                            navController.navigate("settings")
+                        }) { Text("AI Settings") }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -155,29 +174,15 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
         NavHost(
             navController = navController,
             startDestination = "list",
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
+            modifier = Modifier.fillMaxSize().padding(padding)
         ) {
             composable("list") {
                 WidgetListScreen(
                     widgets = widgets,
-                    onCreate = {
-                        viewModel.openCreate()
-                        navController.navigate("editor")
-                    },
-                    onOpen = { widgetId ->
-                        viewModel.openDetail(widgetId)
-                        navController.navigate("detail/$widgetId")
-                    },
-                    onEdit = { widgetId ->
-                        viewModel.openEditor(widgetId)
-                        navController.navigate("editor")
-                    },
-                    onDelete = { widgetId ->
-                        viewModel.openDetail(widgetId)
-                        viewModel.deleteSelectedWidget()
-                    }
+                    onCreate = { viewModel.openCreate(); navController.navigate("editor") },
+                    onOpen = { viewModel.openDetail(it); navController.navigate("detail/$it") },
+                    onEdit = { viewModel.openEditor(it); navController.navigate("editor") },
+                    onDelete = { viewModel.openDetail(it); viewModel.deleteSelectedWidget() }
                 )
             }
             composable("editor") {
@@ -195,13 +200,24 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
                     state = state,
                     onAction = viewModel::applyAction,
                     onEdit = {
-                        state.selectedWidgetId?.let { widgetId ->
-                            viewModel.openEditor(widgetId)
+                        state.selectedWidgetId?.let {
+                            viewModel.openEditor(it)
                             navController.navigate("editor")
                         }
                     },
                     onDelete = viewModel::deleteSelectedWidget,
                     onPin = { requestPinWidget(context) }
+                )
+            }
+            composable("settings") {
+                SettingsScreen(
+                    state = state,
+                    onModeChange = viewModel::setGeneratorMode,
+                    onApiKeyChange = viewModel::updateGeminiApiKey,
+                    onImport = viewModel::importModel,
+                    onRemove = viewModel::removeModel,
+                    onStartWatching = viewModel::startWatchingDownloads,
+                    onStopWatching = viewModel::stopWatchingDownloads
                 )
             }
         }
@@ -219,9 +235,7 @@ private fun WidgetListScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         if (widgets.isEmpty()) {
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(32.dp),
+                modifier = Modifier.fillMaxSize().padding(32.dp),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -237,9 +251,7 @@ private fun WidgetListScreen(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    start = 16.dp, end = 16.dp, top = 12.dp, bottom = 88.dp
-                ),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 88.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(widgets, key = { it.widget.widgetId }) { entry ->
@@ -252,25 +264,17 @@ private fun WidgetListScreen(
                 }
             }
         }
-
         ExtendedFloatingActionButton(
             onClick = onCreate,
             icon = { Icon(Icons.Default.Add, contentDescription = null) },
             text = { Text("Create widget") },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(20.dp)
+            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)
         )
     }
 }
 
 @Composable
-private fun WidgetCard(
-    entry: WidgetListEntry,
-    onOpen: () -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit
-) {
+private fun WidgetCard(entry: WidgetListEntry, onOpen: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
     Card(
         onClick = onOpen,
         modifier = Modifier.fillMaxWidth(),
@@ -303,6 +307,156 @@ private fun WidgetCard(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun SettingsScreen(
+    state: MainUiState,
+    onModeChange: (GeneratorMode) -> Unit,
+    onApiKeyChange: (String) -> Unit,
+    onImport: (android.net.Uri) -> Unit,
+    onRemove: () -> Unit,
+    onStartWatching: () -> Unit,
+    onStopWatching: () -> Unit
+) {
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(onImport)
+    }
+    val uriHandler = LocalUriHandler.current
+    var apiKeyVisible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) { onStartWatching() }
+    DisposableEffect(Unit) { onDispose { onStopWatching() } }
+
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text("AI Source", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            SegmentedButton(
+                selected = state.generatorMode == GeneratorMode.GEMINI,
+                onClick = { onModeChange(GeneratorMode.GEMINI) },
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+            ) { Text("Gemini API") }
+            SegmentedButton(
+                selected = state.generatorMode == GeneratorMode.ON_DEVICE,
+                onClick = { onModeChange(GeneratorMode.ON_DEVICE) },
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+            ) { Text("On-device") }
+        }
+
+        AnimatedVisibility(visible = state.generatorMode == GeneratorMode.GEMINI) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Gemini API", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Uses Google's Gemini 2.0 Flash model via API. Requires internet. Free tier: 60 requests/min.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = state.geminiApiKey,
+                    onValueChange = onApiKeyChange,
+                    label = { Text("Gemini API key") },
+                    placeholder = { Text("AIza...") },
+                    visualTransformation = if (apiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        TextButton(onClick = { apiKeyVisible = !apiKeyVisible }) {
+                            Text(if (apiKeyVisible) "Hide" else "Show")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                TextButton(onClick = { uriHandler.openUri("https://aistudio.google.com/apikey") }) {
+                    Text("Get a free API key at aistudio.google.com")
+                }
+            }
+        }
+
+        AnimatedVisibility(visible = state.generatorMode == GeneratorMode.ON_DEVICE) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (state.modelSettings.ready) MaterialTheme.colorScheme.secondaryContainer
+                        else MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            if (state.modelSettings.ready) "✓ Model ready" else "No model loaded",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        if (state.modelSettings.ready) {
+                            Text(state.modelSettings.fileName, style = MaterialTheme.typography.bodySmall)
+                            Text("${state.modelSettings.sizeBytes / (1024 * 1024)} MB", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            Text(
+                                "Runs fully on-device. No internet needed after setup. Requires ~2 GB model file.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                if (!state.modelSettings.ready) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("How to get the model", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            Text("1. Tap \"Open Kaggle\" — sign in or create a free account.", style = MaterialTheme.typography.bodySmall)
+                            Text("2. Download the Gemma 3n E2B IT int4 .litertlm file to your phone.", style = MaterialTheme.typography.bodySmall)
+                            Text("3. Return here — the model will import automatically.", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    Button(
+                        onClick = { uriHandler.openUri("https://www.kaggle.com/models/google/gemma-3n/tfLite") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Open Kaggle to download model") }
+                }
+
+                if (state.modelSettings.importStatus == OperationStatus.Loading) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Text("Importing model…", style = MaterialTheme.typography.bodySmall)
+                    }
+                } else if (!state.modelSettings.ready) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Text("Watching Downloads for .litertlm file…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
+                Button(
+                    onClick = { launcher.launch(arrayOf("*/*")) },
+                    enabled = state.modelSettings.importStatus != OperationStatus.Loading,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(if (state.modelSettings.ready) "Replace model" else "Import model file") }
+
+                if (state.modelSettings.ready) {
+                    OutlinedButton(
+                        onClick = onRemove,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) { Text("Remove model") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun EditorScreen(
     state: MainUiState,
     onPromptChanged: (String) -> Unit,
@@ -312,10 +466,7 @@ private fun EditorScreen(
     onSave: () -> Unit
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Describe your widget", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -356,7 +507,6 @@ private fun EditorScreen(
                     )
                 }
             }
-
             Button(
                 onClick = onSave,
                 enabled = state.saveStatus != OperationStatus.Loading,
@@ -372,9 +522,7 @@ private fun EditorScreen(
 
         if (state.warnings.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                state.warnings.forEach { warning ->
-                    Text("• $warning", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                }
+                state.warnings.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             }
         }
 
@@ -388,14 +536,9 @@ private fun EditorScreen(
                     value = state.editorJson,
                     onValueChange = onJsonChanged,
                     label = { Text("Widget JSON") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(240.dp)
+                    modifier = Modifier.fillMaxWidth().height(240.dp)
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { onJsonChanged(state.editorJson) }, modifier = Modifier.weight(1f)) { Text("Validate") }
                     Button(onClick = onSave, enabled = state.saveStatus != OperationStatus.Loading, modifier = Modifier.weight(1f)) { Text("Save") }
                 }
@@ -415,19 +558,14 @@ private fun DetailScreen(
     onPin: () -> Unit
 ) {
     if (state.validateStatus == OperationStatus.Loading) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
-        }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
     }
 
     val widget = state.runtimeWidget ?: return
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Column {
@@ -457,9 +595,7 @@ private fun DetailScreen(
             }
         }
 
-        val interactiveActions = widget.definition.actions.filter {
-            it !is WidgetAction.OpenApp && it !is WidgetAction.OpenUrl
-        }
+        val interactiveActions = widget.definition.actions.filter { it !is WidgetAction.OpenApp && it !is WidgetAction.OpenUrl }
         if (interactiveActions.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Actions", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -484,11 +620,7 @@ private fun DetailScreen(
         }
 
         if (state.placementCount > 0) {
-            Text(
-                "Remove this widget from your home screen before deleting.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Text("Remove this widget from your home screen before deleting.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         Spacer(Modifier.height(8.dp))
@@ -498,9 +630,7 @@ private fun DetailScreen(
 private fun requestPinWidget(context: Context) {
     val manager = AppWidgetManager.getInstance(context)
     val provider = ComponentName(context, WidgetGlanceReceiver::class.java)
-    if (manager.isRequestPinAppWidgetSupported) {
-        manager.requestPinAppWidget(provider, null, null)
-    }
+    if (manager.isRequestPinAppWidgetSupported) manager.requestPinAppWidget(provider, null, null)
 }
 
 private fun displayValue(value: VariableValue): String = when (value) {
@@ -511,9 +641,7 @@ private fun displayValue(value: VariableValue): String = when (value) {
 }
 
 private fun formatActionLabel(action: WidgetAction): String =
-    action.id.replace(Regex("([a-z])([A-Z])"), "$1 $2")
-        .replace("_", " ")
-        .replaceFirstChar { it.uppercase() }
+    action.id.replace(Regex("([a-z])([A-Z])"), "$1 $2").replace("_", " ").replaceFirstChar { it.uppercase() }
 
 private fun formatDate(timestamp: Long): String =
     DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(timestamp))
@@ -522,4 +650,5 @@ private fun screenTitle(state: MainUiState): String = when (state.screen) {
     AppScreen.LIST -> "AI Widget Studio"
     AppScreen.EDITOR -> if (state.editingWidgetId == null) "Create widget" else "Edit widget"
     AppScreen.DETAIL -> "Widget"
+    AppScreen.SETTINGS -> "AI Settings"
 }
