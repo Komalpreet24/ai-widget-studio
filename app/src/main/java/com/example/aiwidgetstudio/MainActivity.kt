@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +39,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -63,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.example.aiwidgetstudio.ai.DownloadState
 import com.example.aiwidgetstudio.data.local.dao.WidgetListEntry
 import com.example.aiwidgetstudio.domain.model.VariableValue
 import com.example.aiwidgetstudio.domain.model.WidgetAction
@@ -129,7 +132,10 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
     }
 
     LaunchedEffect(state.error) {
-        state.error?.let { snackbarHostState.showSnackbar(it) }
+        state.error?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearError()
+        }
     }
 
     Scaffold(
@@ -173,6 +179,7 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
             composable("list") {
                 WidgetListScreen(
                     widgets = widgets,
+                    modelReady = state.modelSettings.ready,
                     onCreate = {
                         viewModel.openCreate()
                         navController.navigate("editor")
@@ -188,6 +195,10 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
                     onDelete = { widgetId ->
                         viewModel.openDetail(widgetId)
                         viewModel.deleteSelectedWidget()
+                    },
+                    onSetupModel = {
+                        viewModel.showSettings()
+                        navController.navigate("settings")
                     }
                 )
             }
@@ -197,7 +208,7 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
                     onPromptChanged = viewModel::updatePrompt,
                     onJsonChanged = viewModel::updateEditorJson,
                     onGenerate = viewModel::generateDsl,
-                    onValidate = viewModel::validateDsl,
+                    onToggleAdvanced = viewModel::toggleAdvancedEditor,
                     onSave = viewModel::saveWidget
                 )
             }
@@ -218,6 +229,8 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
             composable("settings") {
                 SettingsScreen(
                     state = state,
+                    onDownload = viewModel::downloadModel,
+                    onCancelDownload = viewModel::cancelDownload,
                     onImport = viewModel::importModel,
                     onRemove = viewModel::removeModel
                 )
@@ -229,10 +242,12 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
 @Composable
 private fun WidgetListScreen(
     widgets: List<WidgetListEntry>,
+    modelReady: Boolean,
     onCreate: () -> Unit,
     onOpen: (String) -> Unit,
     onEdit: (String) -> Unit,
-    onDelete: (String) -> Unit
+    onDelete: (String) -> Unit,
+    onSetupModel: () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (widgets.isEmpty()) {
@@ -246,11 +261,17 @@ private fun WidgetListScreen(
                 Text("No widgets yet", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Tap the button below to create your first AI-powered home screen widget.",
+                    "Describe a widget in plain English and AI will create it for your home screen.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
+                if (!modelReady) {
+                    Spacer(Modifier.height(20.dp))
+                    FilledTonalButton(onClick = onSetupModel) {
+                        Text("Set up AI model first")
+                    }
+                }
             }
         } else {
             LazyColumn(
@@ -326,7 +347,7 @@ private fun EditorScreen(
     onPromptChanged: (String) -> Unit,
     onJsonChanged: (String) -> Unit,
     onGenerate: () -> Unit,
-    onValidate: () -> Unit,
+    onToggleAdvanced: () -> Unit,
     onSave: () -> Unit
 ) {
     Column(
@@ -336,17 +357,20 @@ private fun EditorScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        if (!state.modelSettings.ready) {
+        if (!state.modelSettings.ready && !state.showAdvancedEditor) {
             Surface(
                 color = MaterialTheme.colorScheme.errorContainer,
                 shape = MaterialTheme.shapes.medium
             ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        "⚠ No AI model loaded. Go to AI Model settings to import a .litertlm file, or write DSL JSON manually below.",
+                        "No AI model loaded",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Go to AI Model settings to download the model, or use Advanced mode to paste widget JSON directly.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onErrorContainer
                     )
@@ -354,16 +378,15 @@ private fun EditorScreen(
             }
         }
 
-        // Prompt section
-        Text("Generate from prompt", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Describe your widget", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedTextField(
             value = state.prompt,
             onValueChange = onPromptChanged,
-            label = { Text("Describe your widget") },
-            placeholder = { Text("e.g. A water tracker with daily goal") },
+            placeholder = { Text("e.g. A water tracker that counts glasses per day with +1 and -1 buttons, resets daily at midnight") },
             modifier = Modifier.fillMaxWidth(),
-            minLines = 2
+            minLines = 3
         )
+
         Button(
             onClick = onGenerate,
             enabled = state.generateStatus != OperationStatus.Loading && state.modelSettings.ready,
@@ -372,24 +395,40 @@ private fun EditorScreen(
             if (state.generateStatus == OperationStatus.Loading) {
                 CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
                 Spacer(Modifier.width(8.dp))
-                Text("Generating…")
+                Text("Creating widget…")
             } else {
-                Text("Generate DSL")
+                Text("Create with AI")
             }
         }
 
-        // DSL editor section
-        Text("Widget DSL", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        OutlinedTextField(
-            value = state.editorJson,
-            onValueChange = onJsonChanged,
-            label = { Text("JSON") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(260.dp)
-        )
+        state.parsedSummary?.let { summary ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("✓ Widget ready", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Text(summary.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "${summary.variableCount} variables · ${summary.actionCount} actions · ${summary.uiNodeCount} UI elements",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
 
-        state.parsedSummary?.let { SummaryCard(it) }
+            Button(
+                onClick = onSave,
+                enabled = state.saveStatus != OperationStatus.Loading,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (state.saveStatus == OperationStatus.Loading) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(if (state.editingWidgetId == null) "Save widget" else "Update widget")
+            }
+        }
 
         if (state.warnings.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -403,43 +442,42 @@ private fun EditorScreen(
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedButton(onClick = onValidate, modifier = Modifier.weight(1f)) { Text("Validate") }
-            Button(
-                onClick = onSave,
-                enabled = state.saveStatus != OperationStatus.Loading &&
-                    state.validateStatus !is OperationStatus.Error,
-                modifier = Modifier.weight(1f)
-            ) {
-                if (state.saveStatus == OperationStatus.Loading) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                    Spacer(Modifier.width(8.dp))
+        // Advanced toggle
+        TextButton(onClick = onToggleAdvanced) {
+            Text(if (state.showAdvancedEditor) "Hide advanced editor" else "Advanced: paste JSON manually")
+        }
+
+        AnimatedVisibility(visible = state.showAdvancedEditor) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = state.editorJson,
+                    onValueChange = onJsonChanged,
+                    label = { Text("Widget JSON") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(240.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            onJsonChanged(state.editorJson)
+                            // Trigger validate via save path
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Validate") }
+                    Button(
+                        onClick = onSave,
+                        enabled = state.saveStatus != OperationStatus.Loading,
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Save") }
                 }
-                Text(if (state.saveStatus == OperationStatus.Loading) "Saving…" else "Save")
             }
         }
 
         Spacer(Modifier.height(8.dp))
-    }
-}
-
-@Composable
-private fun SummaryCard(summary: ParsedSummary) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(summary.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Text(
-                "${summary.variableCount} variables · ${summary.actionCount} actions · ${summary.uiNodeCount} UI nodes",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSecondaryContainer
-            )
-        }
     }
 }
 
@@ -467,7 +505,6 @@ private fun DetailScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Header
         Column {
             Text(widget.definition.metadata.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text(
@@ -478,7 +515,6 @@ private fun DetailScreen(
             )
         }
 
-        // State values
         if (widget.state.values.isNotEmpty()) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -496,7 +532,6 @@ private fun DetailScreen(
             }
         }
 
-        // Actions
         val interactiveActions = widget.definition.actions.filter {
             it !is WidgetAction.OpenApp && it !is WidgetAction.OpenUrl
         }
@@ -508,18 +543,16 @@ private fun DetailScreen(
                         onClick = { onAction(action.id) },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(action.id)
+                        Text(formatActionLabel(action))
                     }
                 }
             }
         }
 
-        // Pin
         Button(onClick = onPin, modifier = Modifier.fillMaxWidth()) {
             Text("Add to home screen")
         }
 
-        // Edit / Delete
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f)) { Text("Edit") }
             OutlinedButton(
@@ -545,6 +578,8 @@ private fun DetailScreen(
 @Composable
 private fun SettingsScreen(
     state: MainUiState,
+    onDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
     onImport: (android.net.Uri) -> Unit,
     onRemove: () -> Unit
 ) {
@@ -552,6 +587,7 @@ private fun SettingsScreen(
         uri?.let(onImport)
     }
     val settings = state.modelSettings
+    val downloadProgress = settings.downloadProgress
 
     Column(
         modifier = Modifier
@@ -560,7 +596,6 @@ private fun SettingsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Status card
         Card(
             colors = CardDefaults.cardColors(
                 containerColor = if (settings.ready) MaterialTheme.colorScheme.secondaryContainer
@@ -570,7 +605,7 @@ private fun SettingsScreen(
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    if (settings.ready) "Model loaded" else "No model loaded",
+                    if (settings.ready) "✓ Model ready" else "No model loaded",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -579,7 +614,7 @@ private fun SettingsScreen(
                     Text("${settings.sizeBytes / (1024 * 1024)} MB", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     Text(
-                        "Import a .litertlm model file to enable AI-powered widget generation.",
+                        "Download or import a model to enable AI widget creation.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -587,42 +622,67 @@ private fun SettingsScreen(
             }
         }
 
-        // How to get a model
         if (!settings.ready) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("How to get a model", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "This app uses Google's LiteRT-LM runtime and requires a .litertlm model file.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Text("Recommended model:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "Gemma 3n E2B (int4) — ~2 GB, runs on-device with GPU acceleration.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Text("Steps:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                    Text("1. Tap \"Download model\" below to open the download page.", style = MaterialTheme.typography.bodySmall)
-                    Text("2. Download the .litertlm file to your device.", style = MaterialTheme.typography.bodySmall)
-                    Text("3. Once downloaded, tap \"Import model\" and select the file.", style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "Without a model you can still create widgets by writing or pasting DSL JSON manually in the editor.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Gemma 3n E2B (int4)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text("~2 GB download · Runs on-device with GPU", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Recommended for Pixel 8 and similar devices. All processing stays on your phone — nothing is sent to the cloud.", style = MaterialTheme.typography.bodySmall)
                 }
             }
 
-            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+            when (downloadProgress.state) {
+                DownloadState.Downloading -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LinearProgressIndicator(
+                            progress = { downloadProgress.progress },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                if (downloadProgress.totalBytes > 0)
+                                    "${downloadProgress.bytesDownloaded / (1024 * 1024)} / ${downloadProgress.totalBytes / (1024 * 1024)} MB"
+                                else "Downloading…",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            TextButton(onClick = onCancelDownload) { Text("Cancel") }
+                        }
+                    }
+                }
+                DownloadState.Failed -> {
+                    Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.small) {
+                        Text(
+                            "Download failed. Check your connection and try again.",
+                            modifier = Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                    Button(onClick = onDownload, modifier = Modifier.fillMaxWidth()) {
+                        Text("Retry download")
+                    }
+                }
+                else -> {
+                    Button(onClick = onDownload, modifier = Modifier.fillMaxWidth()) {
+                        Text("Download model")
+                    }
+                }
+            }
+
+            Text("— or —", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
             OutlinedButton(
-                onClick = { uriHandler.openUri("https://ai.google.dev/edge/litert/models") },
+                onClick = { launcher.launch(arrayOf("*/*")) },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Download model from Google AI Edge")
+                Text("Import .litertlm file manually")
             }
         }
 
@@ -633,15 +693,13 @@ private fun SettingsScreen(
             }
         }
 
-        Button(
-            onClick = { launcher.launch(arrayOf("*/*")) },
-            enabled = settings.status != OperationStatus.Loading,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(if (settings.ready) "Replace model" else "Import model")
-        }
-
         if (settings.ready) {
+            Button(
+                onClick = { launcher.launch(arrayOf("*/*")) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Replace model")
+            }
             OutlinedButton(
                 onClick = onRemove,
                 modifier = Modifier.fillMaxWidth(),
@@ -666,6 +724,13 @@ private fun displayValue(value: VariableValue): String = when (value) {
     is VariableValue.DoubleValue -> value.value.toString()
     is VariableValue.IntValue -> value.value.toString()
     is VariableValue.StringValue -> value.value
+}
+
+private fun formatActionLabel(action: WidgetAction): String {
+    val id = action.id
+    return id.replace(Regex("([a-z])([A-Z])"), "$1 $2")
+        .replace("_", " ")
+        .replaceFirstChar { it.uppercase() }
 }
 
 private fun formatDate(timestamp: Long): String =

@@ -4,11 +4,15 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.aiwidgetstudio.ai.AiOutputExtractor
+import com.example.aiwidgetstudio.ai.DownloadProgress
+import com.example.aiwidgetstudio.ai.DownloadState
 import com.example.aiwidgetstudio.ai.LocalWidgetDslGenerator
+import com.example.aiwidgetstudio.ai.ModelDownloader
 import com.example.aiwidgetstudio.ai.ModelManager
 import com.example.aiwidgetstudio.data.local.dao.WidgetListEntry
 import com.example.aiwidgetstudio.data.repository.WidgetRepository
 import com.example.aiwidgetstudio.domain.model.UiNode
+import com.example.aiwidgetstudio.domain.model.VariableValue
 import com.example.aiwidgetstudio.domain.model.WidgetAction
 import com.example.aiwidgetstudio.engine.runtime.RuntimeWidget
 import com.example.aiwidgetstudio.engine.runtime.WidgetRuntime
@@ -41,13 +45,15 @@ data class ModelSettingsState(
     val fileName: String = "",
     val sizeBytes: Long = 0,
     val ready: Boolean = false,
-    val status: OperationStatus = OperationStatus.Idle
+    val status: OperationStatus = OperationStatus.Idle,
+    val downloadProgress: DownloadProgress = DownloadProgress()
 )
 
 data class MainUiState(
     val screen: AppScreen = AppScreen.LIST,
     val prompt: String = "",
     val editorJson: String = "",
+    val showAdvancedEditor: Boolean = false,
     val editingWidgetId: String? = null,
     val selectedWidgetId: String? = null,
     val runtimeWidget: RuntimeWidget? = null,
@@ -67,6 +73,7 @@ class MainViewModel @Inject constructor(
     private val repository: WidgetRepository,
     private val generator: LocalWidgetDslGenerator,
     private val modelManager: ModelManager,
+    private val modelDownloader: ModelDownloader,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -85,6 +92,7 @@ class MainViewModel @Inject constructor(
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
     private var generateJob: Job? = null
+    private var downloadJob: Job? = null
 
     init {
         viewModelScope.launch { refreshModelInfo() }
@@ -93,8 +101,8 @@ class MainViewModel @Inject constructor(
     fun openCreate() {
         _uiState.value = MainUiState(
             screen = AppScreen.EDITOR,
-            editorJson = if (_uiState.value.editorJson.isBlank()) SAMPLE_DSL else _uiState.value.editorJson,
-            prompt = _uiState.value.prompt
+            prompt = _uiState.value.prompt,
+            modelSettings = _uiState.value.modelSettings
         )
         persistEditorState()
     }
@@ -107,6 +115,7 @@ class MainViewModel @Inject constructor(
                     screen = AppScreen.EDITOR,
                     editorJson = stored.widget.dslJson,
                     editingWidgetId = widgetId,
+                    showAdvancedEditor = true,
                     error = null
                 )
             }
@@ -123,6 +132,14 @@ class MainViewModel @Inject constructor(
     fun updateEditorJson(value: String) {
         _uiState.update { it.copy(editorJson = value, error = null) }
         savedStateHandle[KEY_EDITOR_JSON] = value
+    }
+
+    fun toggleAdvancedEditor() {
+        _uiState.update { it.copy(showAdvancedEditor = !it.showAdvancedEditor) }
+    }
+
+    fun clearError() {
+        _uiState.update { it.copy(error = null) }
     }
 
     fun validateDsl() {
@@ -164,9 +181,7 @@ class MainViewModel @Inject constructor(
         if (_uiState.value.generateStatus == OperationStatus.Loading) return
         val prompt = _uiState.value.prompt.trim()
         if (prompt.isBlank()) {
-            _uiState.update {
-                it.copy(error = "Enter a prompt before generating")
-            }
+            _uiState.update { it.copy(error = "Enter a description for your widget") }
             return
         }
 
@@ -178,23 +193,22 @@ class MainViewModel @Inject constructor(
                     OperationStatus.Loading -> {
                         val json = AiOutputExtractor.extractWidgetJson(progress.partialText)
                         if (json != null) {
-                            updateEditorJson(json)
+                            _uiState.update { it.copy(editorJson = json) }
+                            savedStateHandle[KEY_EDITOR_JSON] = json
                         }
                         _uiState.update { it.copy(generateStatus = OperationStatus.Loading) }
                     }
                     OperationStatus.Success -> {
                         val json = AiOutputExtractor.extractWidgetJson(progress.partialText)
                             ?: progress.partialText
-                        updateEditorJson(json)
+                        _uiState.update { it.copy(editorJson = json) }
+                        savedStateHandle[KEY_EDITOR_JSON] = json
                         validateDsl()
                         _uiState.update { it.copy(generateStatus = OperationStatus.Success) }
                     }
                     is OperationStatus.Error -> {
                         _uiState.update {
-                            it.copy(
-                                generateStatus = status,
-                                error = status.message
-                            )
+                            it.copy(generateStatus = status, error = status.message)
                         }
                     }
                     OperationStatus.Idle -> Unit
@@ -241,7 +255,8 @@ class MainViewModel @Inject constructor(
                 MainUiState(
                     screen = AppScreen.DETAIL,
                     selectedWidgetId = widgetId,
-                    validateStatus = OperationStatus.Loading
+                    validateStatus = OperationStatus.Loading,
+                    modelSettings = it.modelSettings
                 )
             }
             reloadDetail(widgetId)
@@ -271,10 +286,13 @@ class MainViewModel @Inject constructor(
     }
 
     fun showList() {
-        _uiState.value = MainUiState(
-            prompt = savedStateHandle.get<String>(KEY_PROMPT).orEmpty(),
-            editorJson = savedStateHandle.get<String>(KEY_EDITOR_JSON).orEmpty()
-        )
+        _uiState.update {
+            MainUiState(
+                prompt = savedStateHandle.get<String>(KEY_PROMPT).orEmpty(),
+                editorJson = savedStateHandle.get<String>(KEY_EDITOR_JSON).orEmpty(),
+                modelSettings = it.modelSettings
+            )
+        }
     }
 
     fun showSettings() {
@@ -288,6 +306,29 @@ class MainViewModel @Inject constructor(
                     editorJson = savedStateHandle.get<String>(KEY_EDITOR_JSON).orEmpty()
                 )
             }
+        }
+    }
+
+    fun downloadModel() {
+        if (downloadJob?.isActive == true) return
+        downloadJob = viewModelScope.launch {
+            modelDownloader.downloadModel(MODEL_DOWNLOAD_URL).collect { progress ->
+                _uiState.update {
+                    it.copy(modelSettings = it.modelSettings.copy(downloadProgress = progress))
+                }
+                if (progress.state == DownloadState.Completed) {
+                    generator.invalidateEngine()
+                    refreshModelInfo()
+                }
+            }
+        }
+    }
+
+    fun cancelDownload() {
+        downloadJob?.cancel()
+        modelDownloader.cancelDownload()
+        _uiState.update {
+            it.copy(modelSettings = it.modelSettings.copy(downloadProgress = DownloadProgress()))
         }
     }
 
@@ -365,35 +406,6 @@ class MainViewModel @Inject constructor(
     companion object {
         private const val KEY_PROMPT = "prompt"
         private const val KEY_EDITOR_JSON = "editor_json"
-
-        val SAMPLE_DSL = """
-            {
-              "dslVersion": 1,
-              "metadata": { "name": "Water Tracker" },
-              "data": {
-                "updatePolicy": { "type": "DAILY_RESET", "hour": 0, "minute": 0 },
-                "variables": [
-                  { "name": "waterCount", "type": "INT", "default": 0, "min": 0, "max": 10 },
-                  { "name": "dailyGoal", "type": "INT", "default": 10, "min": 1, "max": 20 }
-                ]
-              },
-              "actions": [
-                { "id": "addWater", "type": "INCREMENT", "target": "waterCount", "step": 1 },
-                { "id": "removeWater", "type": "DECREMENT", "target": "waterCount", "step": 1 },
-                { "id": "resetWater", "type": "RESET", "target": "waterCount" }
-              ],
-              "ui": {
-                "type": "COLUMN",
-                "children": [
-                  { "type": "TEXT", "value": "Water Tracker" },
-                  { "type": "PROGRESS", "current": "{{waterCount}}", "max": "{{dailyGoal}}" },
-                  { "type": "ROW", "children": [
-                    { "type": "BUTTON", "text": "+1", "action": "addWater" },
-                    { "type": "BUTTON", "text": "-1", "action": "removeWater" }
-                  ] }
-                ]
-              }
-            }
-        """.trimIndent()
+        private const val MODEL_DOWNLOAD_URL = "https://storage.googleapis.com/litert-community/gemma-3n-E2B-it-int4.litertlm"
     }
 }
