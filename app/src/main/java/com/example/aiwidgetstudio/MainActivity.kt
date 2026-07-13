@@ -65,8 +65,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
@@ -443,82 +441,152 @@ private fun EditorScreen(
     onToggleAdvanced: () -> Unit,
     onSave: () -> Unit
 ) {
+    val isEditing = state.editingWidgetId != null
+
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Describe your widget", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        OutlinedTextField(
-            value = state.prompt,
-            onValueChange = onPromptChanged,
-            placeholder = { Text("e.g. A water tracker that counts glasses per day with +1 and -1 buttons, resets daily at midnight") },
-            modifier = Modifier.fillMaxWidth(),
-            minLines = 3
-        )
-
-        Button(
-            onClick = onGenerate,
-            enabled = state.generateStatus != OperationStatus.Loading,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            if (state.generateStatus == OperationStatus.Loading) {
-                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                Spacer(Modifier.width(8.dp))
-                Text("Creating widget…")
-            } else {
-                Text("Create with AI")
-            }
-        }
-
-        state.parsedSummary?.let { summary ->
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("✓ Widget ready", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                    Text(summary.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "${summary.variableCount} variables · ${summary.actionCount} actions · ${summary.uiNodeCount} UI elements",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                }
-            }
+        if (isEditing) {
+            Text("Request changes", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedTextField(
+                value = state.prompt,
+                onValueChange = onPromptChanged,
+                placeholder = { Text("e.g. Add a -1 button, change the background to blue") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 2
+            )
             Button(
-                onClick = onSave,
-                enabled = state.saveStatus != OperationStatus.Loading,
+                onClick = onGenerate,
+                enabled = state.generateStatus != OperationStatus.Loading,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                if (state.saveStatus == OperationStatus.Loading) {
+                if (state.generateStatus == OperationStatus.Loading) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
                     Spacer(Modifier.width(8.dp))
+                    Text("Updating…")
+                } else {
+                    Text("Update with AI")
                 }
-                Text(if (state.editingWidgetId == null) "Save widget" else "Update widget")
             }
-        }
 
-        if (state.warnings.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                state.warnings.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+            Text("Widget JSON", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedTextField(
+                value = state.editorJson,
+                onValueChange = onJsonChanged,
+                modifier = Modifier.fillMaxWidth().height(320.dp)
+            )
+
+            state.parsedSummary?.let { summary ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(summary.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "${summary.variableCount} variables · ${summary.actionCount} actions · ${summary.uiNodeCount} UI elements",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
             }
-        }
 
-        TextButton(onClick = onToggleAdvanced) {
-            Text(if (state.showAdvancedEditor) "Hide advanced editor" else "Advanced: paste JSON manually")
-        }
+            if (state.warnings.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    state.warnings.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                }
+            }
 
-        AnimatedVisibility(visible = state.showAdvancedEditor) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = state.editorJson,
-                    onValueChange = onJsonChanged,
-                    label = { Text("Widget JSON") },
-                    modifier = Modifier.fillMaxWidth().height(240.dp)
-                )
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { onJsonChanged(state.editorJson) }, modifier = Modifier.weight(1f)) { Text("Validate") }
-                    Button(onClick = onSave, enabled = state.saveStatus != OperationStatus.Loading, modifier = Modifier.weight(1f)) { Text("Save") }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { onJsonChanged(state.editorJson) }, modifier = Modifier.weight(1f)) { Text("Validate") }
+                Button(
+                    onClick = onSave,
+                    enabled = state.saveStatus != OperationStatus.Loading,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (state.saveStatus == OperationStatus.Loading) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text("Update widget")
+                }
+            }
+        } else {
+            Text("Describe your widget", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedTextField(
+                value = state.prompt,
+                onValueChange = onPromptChanged,
+                placeholder = { Text("e.g. A water tracker that counts glasses per day with +1 and -1 buttons, resets daily at midnight") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 3
+            )
+
+            Button(
+                onClick = onGenerate,
+                enabled = state.generateStatus != OperationStatus.Loading,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (state.generateStatus == OperationStatus.Loading) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Creating widget…")
+                } else {
+                    Text("Create with AI")
+                }
+            }
+
+            state.parsedSummary?.let { summary ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("✓ Widget ready", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                        Text(summary.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "${summary.variableCount} variables · ${summary.actionCount} actions · ${summary.uiNodeCount} UI elements",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+                Button(
+                    onClick = onSave,
+                    enabled = state.saveStatus != OperationStatus.Loading,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (state.saveStatus == OperationStatus.Loading) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text("Save widget")
+                }
+            }
+
+            if (state.warnings.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    state.warnings.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                }
+            }
+
+            TextButton(onClick = onToggleAdvanced) {
+                Text(if (state.showAdvancedEditor) "Hide advanced editor" else "Advanced: paste JSON manually")
+            }
+
+            AnimatedVisibility(visible = state.showAdvancedEditor) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = state.editorJson,
+                        onValueChange = onJsonChanged,
+                        label = { Text("Widget JSON") },
+                        modifier = Modifier.fillMaxWidth().height(240.dp)
+                    )
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { onJsonChanged(state.editorJson) }, modifier = Modifier.weight(1f)) { Text("Validate") }
+                        Button(onClick = onSave, enabled = state.saveStatus != OperationStatus.Loading, modifier = Modifier.weight(1f)) { Text("Save") }
+                    }
                 }
             }
         }

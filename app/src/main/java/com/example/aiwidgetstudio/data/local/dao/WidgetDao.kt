@@ -79,6 +79,10 @@ interface WidgetDao {
 
     @Transaction
     @Query("SELECT * FROM WidgetEntity WHERE widgetId = :widgetId")
+    fun observeWidgetWithState(widgetId: String): Flow<WidgetWithState?>
+
+    @Transaction
+    @Query("SELECT * FROM WidgetEntity WHERE widgetId = :widgetId")
     suspend fun getWidgetWithState(widgetId: String): WidgetWithState?
 
     @Transaction

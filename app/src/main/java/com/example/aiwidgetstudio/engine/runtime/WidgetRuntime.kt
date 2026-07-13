@@ -10,7 +10,7 @@ import com.example.aiwidgetstudio.engine.state.WidgetState
 import com.example.aiwidgetstudio.engine.state.WidgetStateCodec
 import com.example.aiwidgetstudio.engine.state.WidgetStateEngine
 import com.example.aiwidgetstudio.engine.validator.WidgetValidatorWarning
-import com.example.aiwidgetstudio.glance.WidgetRefresh
+import com.example.aiwidgetstudio.glance.WidgetGlanceStateUpdater
 import java.time.Clock
 import java.time.Instant
 import java.util.UUID
@@ -36,7 +36,7 @@ class WidgetRuntime @Inject constructor(
     private val stateEngine: WidgetStateEngine,
     private val stateCodec: WidgetStateCodec,
     private val repository: WidgetRepository,
-    private val widgetRefresh: WidgetRefresh,
+    private val glanceStateUpdater: WidgetGlanceStateUpdater,
     private val clock: Clock
 ) {
 
@@ -115,7 +115,7 @@ class WidgetRuntime @Inject constructor(
                 )
 
                 repository.updateWidget(updatedWidget, updatedStateEntity)
-                widgetRefresh.refreshWidget(widgetId)
+                glanceStateUpdater.pushState(widgetId, stateCodec.encode(updatedState))
                 Result.success(processed)
             } catch (error: CancellationException) {
                 throw error
@@ -157,7 +157,6 @@ class WidgetRuntime @Inject constructor(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                android.util.Log.e("WidgetRuntime", "loadWidget failed for $widgetId", error)
                 null
             }
         }
@@ -186,14 +185,15 @@ class WidgetRuntime @Inject constructor(
                 val stateChanged = reset != null || stateAfterAction != decodedState || stateWasRepaired
 
                 if (stateChanged) {
+                    val newStateJson = stateCodec.encode(stateAfterAction)
                     repository.updateState(
                         stored.state.copy(
-                            stateJson = stateCodec.encode(stateAfterAction),
+                            stateJson = newStateJson,
                             lastResetAt = reset?.resetAt?.toEpochMilli()
                                 ?: stored.state.lastResetAt
                         )
                     )
-                    widgetRefresh.refreshWidget(widgetId)
+                    glanceStateUpdater.pushState(widgetId, newStateJson)
                 }
 
                 stateChanged
@@ -224,7 +224,7 @@ class WidgetRuntime @Inject constructor(
                         lastResetAt = reset.resetAt.toEpochMilli()
                     )
                 )
-                widgetRefresh.refreshWidget(widgetId)
+                glanceStateUpdater.pushState(widgetId, stateCodec.encode(reset.state))
                 true
             } catch (error: CancellationException) {
                 throw error

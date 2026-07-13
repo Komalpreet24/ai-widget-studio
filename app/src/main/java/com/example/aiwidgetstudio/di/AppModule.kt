@@ -11,7 +11,5 @@ import java.time.Clock
 object AppModule {
 
     @Provides
-    fun provideClock(): Clock {
-        return Clock.systemDefaultZone()
-    }
+    fun provideClock(): Clock = Clock.systemDefaultZone()
 }

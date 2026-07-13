@@ -33,6 +33,10 @@ class WidgetRepository @Inject constructor(
         return dao.observeWidgetListEntries()
     }
 
+    fun observeWidgetWithState(widgetId: String): kotlinx.coroutines.flow.Flow<WidgetWithState?> {
+        return dao.observeWidgetWithState(widgetId)
+    }
+
     suspend fun getWidgetWithState(widgetId: String): WidgetWithState? {
         return dao.getWidgetWithState(widgetId)
     }

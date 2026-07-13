@@ -22,11 +22,11 @@ class GeminiWidgetGenerator @Inject constructor(
     private val processor: WidgetDslProcessor
 ) : WidgetGenerator {
 
-    override fun generate(prompt: String): Flow<GenerationProgress> = flow {
+    override fun generate(prompt: String, existingDsl: String?): Flow<GenerationProgress> = flow {
         emit(GenerationProgress(status = OperationStatus.Loading))
         try {
             val model = GenerativeModel(
-                modelName = "gemini-2.0-flash",
+                modelName = "gemini-3.5-flash",
                 apiKey = BuildConfig.GEMINI_API_KEY,
                 generationConfig = generationConfig {
                     temperature = 0.2f
@@ -37,8 +37,13 @@ class GeminiWidgetGenerator @Inject constructor(
                 systemInstruction = content { text(SYSTEM_PROMPT) },
                 requestOptions = RequestOptions(apiVersion = "v1beta")
             )
+            val userMessage = if (existingDsl != null) {
+                "Modify this existing widget DSL:\n$existingDsl\n\nChanges requested: $prompt"
+            } else {
+                "Create a widget for: $prompt"
+            }
             val builder = StringBuilder()
-            model.generateContentStream(content { text("Create a widget for: $prompt") })
+            model.generateContentStream(content { text(userMessage) })
                 .collect { chunk ->
                     chunk.text?.let {
                         builder.append(it)

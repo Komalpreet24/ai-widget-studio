@@ -25,7 +25,7 @@ class LocalWidgetDslGenerator @Inject constructor(
     private val mutex = Mutex()
     private var engine: Engine? = null
 
-    override fun generate(prompt: String): Flow<GenerationProgress> = flow {
+    override fun generate(prompt: String, existingDsl: String?): Flow<GenerationProgress> = flow {
         emit(GenerationProgress(status = OperationStatus.Loading))
         try {
             mutex.withLock {
@@ -36,7 +36,7 @@ class LocalWidgetDslGenerator @Inject constructor(
                 engine = createEngine(modelPath).also { it.initialize() }
 
                 val systemInstruction = buildSystemPrompt()
-                val userMessage = buildUserPrompt(prompt)
+                val userMessage = if (existingDsl != null) buildEditPrompt(prompt, existingDsl) else buildUserPrompt(prompt)
                 val conversation = engine!!.createConversation(
                     ConversationConfig(
                         systemInstruction = Contents.of(systemInstruction),
@@ -66,7 +66,7 @@ class LocalWidgetDslGenerator @Inject constructor(
                     )
                 ).use { repairConversation ->
                     repairConversation.sendMessageAsync(
-                        buildRepairPrompt(prompt, builder.toString(), firstPass.exceptionOrNull()?.message ?: "Invalid DSL")
+                        buildRepairPrompt(prompt, existingDsl, builder.toString(), firstPass.exceptionOrNull()?.message ?: "Invalid DSL")
                     ).collect { chunk ->
                         repairBuilder.append(chunk)
                         emit(GenerationProgress(partialText = repairBuilder.toString(), status = OperationStatus.Loading))
@@ -135,10 +135,18 @@ class LocalWidgetDslGenerator @Inject constructor(
         Return one complete widget DSL JSON object for dslVersion 1.
     """.trimIndent()
 
-    private fun buildRepairPrompt(prompt: String, malformed: String, error: String) = """
+    private fun buildEditPrompt(changes: String, existingDsl: String) = """
+        Modify the following existing widget DSL based on the requested changes.
+        Return the complete updated DSL JSON only.
+        Existing DSL:
+        $existingDsl
+        Changes requested: $changes
+    """.trimIndent()
+
+    private fun buildRepairPrompt(prompt: String, existingDsl: String?, malformed: String, error: String) = """
         The previous output was invalid.
         Error: $error
-        User prompt: $prompt
+        ${if (existingDsl != null) "Existing DSL: $existingDsl\nChanges requested: $prompt" else "User prompt: $prompt"}
         Malformed output: $malformed
         Return one corrected widget DSL JSON object only.
     """.trimIndent()

@@ -339,6 +339,5 @@ class WidgetActionCallback : ActionCallback {
             WidgetRuntimeEntryPoint::class.java
         )
         entryPoint.widgetRuntime().applyAction(widgetId, actionId)
-        WidgetGlanceAppWidget().update(context, glanceId)
     }
 }

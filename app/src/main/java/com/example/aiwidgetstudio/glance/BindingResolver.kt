@@ -6,15 +6,18 @@ import com.example.aiwidgetstudio.engine.state.WidgetState
 object BindingResolver {
 
     private val bindingRegex = Regex("""^\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}$""")
+    private val interpolationRegex = Regex("""\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}""")
 
     fun resolveText(value: String, state: WidgetState): String {
-        val binding = extractVariableName(value) ?: return value
-        return when (val resolved = state.values[binding]) {
-            is VariableValue.BooleanValue -> resolved.value.toString()
-            is VariableValue.DoubleValue -> resolved.value.toString()
-            is VariableValue.IntValue -> resolved.value.toString()
-            is VariableValue.StringValue -> resolved.value
-            null -> ""
+        return interpolationRegex.replace(value) { match ->
+            val varName = match.groupValues[1]
+            when (val resolved = state.values[varName]) {
+                is VariableValue.BooleanValue -> resolved.value.toString()
+                is VariableValue.DoubleValue -> resolved.value.toString()
+                is VariableValue.IntValue -> resolved.value.toString()
+                is VariableValue.StringValue -> resolved.value
+                null -> match.value
+            }
         }
     }
 

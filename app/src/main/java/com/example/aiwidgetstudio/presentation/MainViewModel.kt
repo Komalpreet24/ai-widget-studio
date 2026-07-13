@@ -201,7 +201,8 @@ class MainViewModel @Inject constructor(
         generateJob?.cancel()
         generateJob = viewModelScope.launch {
             _uiState.update { it.copy(generateStatus = OperationStatus.Loading, error = null) }
-            generator.generate(prompt).collect { progress ->
+            val existingDsl = if (_uiState.value.editingWidgetId != null) _uiState.value.editorJson.ifBlank { null } else null
+            generator.generate(prompt, existingDsl).collect { progress ->
                 when (val status = progress.status) {
                     OperationStatus.Loading -> {
                         val json = AiOutputExtractor.extractWidgetJson(progress.partialText)
