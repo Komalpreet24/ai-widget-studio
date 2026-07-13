@@ -20,7 +20,8 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "GEMINI_API_KEY", "\"${project.findProperty("GEMINI_API_KEY") ?: ""}\"")
+        val geminiKey = project.findProperty("GEMINI_API_KEY")?.toString() ?: ""
+        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiKey\"")
     }
 
     buildTypes {
@@ -73,6 +74,7 @@ dependencies {
     implementation(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.compiler)
     implementation(libs.gemini.android)
+    implementation(libs.okhttp)
     implementation(libs.litertlm.android)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)

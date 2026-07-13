@@ -1,8 +1,10 @@
 package com.example.aiwidgetstudio.ai
 
+import com.example.aiwidgetstudio.BuildConfig
 import com.example.aiwidgetstudio.engine.WidgetDslProcessor
 import com.example.aiwidgetstudio.presentation.OperationStatus
 import com.google.ai.client.generativeai.GenerativeModel
+import com.google.ai.client.generativeai.type.RequestOptions
 import com.google.ai.client.generativeai.type.content
 import com.google.ai.client.generativeai.type.generationConfig
 import javax.inject.Inject
@@ -17,28 +19,23 @@ data class GenerationProgress(
 
 @Singleton
 class GeminiWidgetGenerator @Inject constructor(
-    private val processor: WidgetDslProcessor,
-    private val preference: GeneratorPreference
+    private val processor: WidgetDslProcessor
 ) : WidgetGenerator {
 
     override fun generate(prompt: String): Flow<GenerationProgress> = flow {
         emit(GenerationProgress(status = OperationStatus.Loading))
-        val apiKey = preference.geminiApiKey
-        if (apiKey.isBlank()) {
-            emit(GenerationProgress(status = OperationStatus.Error("Enter a Gemini API key in Settings")))
-            return@flow
-        }
         try {
             val model = GenerativeModel(
                 modelName = "gemini-2.0-flash",
-                apiKey = apiKey,
+                apiKey = BuildConfig.GEMINI_API_KEY,
                 generationConfig = generationConfig {
                     temperature = 0.2f
                     topK = 20
                     topP = 0.9f
                     responseMimeType = "application/json"
                 },
-                systemInstruction = content { text(SYSTEM_PROMPT) }
+                systemInstruction = content { text(SYSTEM_PROMPT) },
+                requestOptions = RequestOptions(apiVersion = "v1beta")
             )
             val builder = StringBuilder()
             model.generateContentStream(content { text("Create a widget for: $prompt") })

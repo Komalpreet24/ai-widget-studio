@@ -213,7 +213,6 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
                 SettingsScreen(
                     state = state,
                     onModeChange = viewModel::setGeneratorMode,
-                    onApiKeyChange = viewModel::updateGeminiApiKey,
                     onImport = viewModel::importModel,
                     onRemove = viewModel::removeModel,
                     onStartWatching = viewModel::startWatchingDownloads,
@@ -311,7 +310,6 @@ private fun WidgetCard(entry: WidgetListEntry, onOpen: () -> Unit, onEdit: () ->
 private fun SettingsScreen(
     state: MainUiState,
     onModeChange: (GeneratorMode) -> Unit,
-    onApiKeyChange: (String) -> Unit,
     onImport: (android.net.Uri) -> Unit,
     onRemove: () -> Unit,
     onStartWatching: () -> Unit,
@@ -321,7 +319,6 @@ private fun SettingsScreen(
         uri?.let(onImport)
     }
     val uriHandler = LocalUriHandler.current
-    var apiKeyVisible by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { onStartWatching() }
     DisposableEffect(Unit) { onDispose { onStopWatching() } }
@@ -346,36 +343,17 @@ private fun SettingsScreen(
         }
 
         AnimatedVisibility(visible = state.generatorMode == GeneratorMode.GEMINI) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Gemini API", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "Uses Google's Gemini 2.0 Flash model via API. Requires internet. Free tier: 60 requests/min.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                OutlinedTextField(
-                    value = state.geminiApiKey,
-                    onValueChange = onApiKeyChange,
-                    label = { Text("Gemini API key") },
-                    placeholder = { Text("AIza...") },
-                    visualTransformation = if (apiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        TextButton(onClick = { apiKeyVisible = !apiKeyVisible }) {
-                            Text(if (apiKeyVisible) "Hide" else "Show")
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                TextButton(onClick = { uriHandler.openUri("https://aistudio.google.com/apikey") }) {
-                    Text("Get a free API key at aistudio.google.com")
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("✓ Gemini API configured", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Uses Gemini 2.0 Flash. Requires internet. Free tier: 60 requests/min.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
                 }
             }
         }

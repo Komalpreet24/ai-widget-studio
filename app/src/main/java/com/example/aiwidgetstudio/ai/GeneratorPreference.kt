@@ -17,12 +17,7 @@ class GeneratorPreference @Inject constructor(
         get() = GeneratorMode.valueOf(prefs.getString(KEY_MODE, GeneratorMode.GEMINI.name)!!)
         set(value) = prefs.edit().putString(KEY_MODE, value.name).apply()
 
-    var geminiApiKey: String
-        get() = prefs.getString(KEY_API_KEY, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_API_KEY, value).apply()
-
     companion object {
         private const val KEY_MODE = "mode"
-        private const val KEY_API_KEY = "gemini_api_key"
     }
 }

@@ -63,7 +63,6 @@ data class MainUiState(
     val saveStatus: OperationStatus = OperationStatus.Idle,
     val generateStatus: OperationStatus = OperationStatus.Idle,
     val generatorMode: GeneratorMode = GeneratorMode.GEMINI,
-    val geminiApiKey: String = "",
     val modelSettings: ModelSettingsState = ModelSettingsState(),
     val error: String? = null
 )
@@ -89,8 +88,7 @@ class MainViewModel @Inject constructor(
         MainUiState(
             prompt = savedStateHandle.get<String>(KEY_PROMPT).orEmpty(),
             editorJson = savedStateHandle.get<String>(KEY_EDITOR_JSON).orEmpty(),
-            generatorMode = generatorPreference.mode,
-            geminiApiKey = generatorPreference.geminiApiKey
+            generatorMode = generatorPreference.mode
         )
     )
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
@@ -107,7 +105,6 @@ class MainViewModel @Inject constructor(
             screen = AppScreen.EDITOR,
             prompt = _uiState.value.prompt,
             generatorMode = _uiState.value.generatorMode,
-            geminiApiKey = _uiState.value.geminiApiKey,
             modelSettings = _uiState.value.modelSettings
         )
         persistEditorState()
@@ -153,10 +150,7 @@ class MainViewModel @Inject constructor(
         _uiState.update { it.copy(generatorMode = mode) }
     }
 
-    fun updateGeminiApiKey(key: String) {
-        generatorPreference.geminiApiKey = key
-        _uiState.update { it.copy(geminiApiKey = key) }
-    }
+    fun updateGeminiApiKey(key: String) { }
 
     fun validateDsl() {
         if (_uiState.value.validateStatus == OperationStatus.Loading) return
@@ -269,7 +263,6 @@ class MainViewModel @Inject constructor(
                     selectedWidgetId = widgetId,
                     validateStatus = OperationStatus.Loading,
                     generatorMode = it.generatorMode,
-                    geminiApiKey = it.geminiApiKey,
                     modelSettings = it.modelSettings
                 )
             }
@@ -300,7 +293,6 @@ class MainViewModel @Inject constructor(
                 prompt = savedStateHandle.get<String>(KEY_PROMPT).orEmpty(),
                 editorJson = savedStateHandle.get<String>(KEY_EDITOR_JSON).orEmpty(),
                 generatorMode = it.generatorMode,
-                geminiApiKey = it.geminiApiKey,
                 modelSettings = it.modelSettings
             )
         }
