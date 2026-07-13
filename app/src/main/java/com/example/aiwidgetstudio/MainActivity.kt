@@ -11,6 +11,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,7 +29,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -63,6 +66,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -93,9 +97,19 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val deepLinkWidgetId = intent?.getStringExtra(EXTRA_WIDGET_ID)
+        val activity = this
+        val pinWidget: () -> Unit = {
+            val manager = AppWidgetManager.getInstance(activity)
+            val provider = ComponentName(activity, WidgetGlanceReceiver::class.java)
+            if (manager.isRequestPinAppWidgetSupported) manager.requestPinAppWidget(provider, null, null)
+        }
         setContent {
             AIWidgetStudioTheme {
-                WidgetStudioApp(viewModel = viewModel, deepLinkWidgetId = deepLinkWidgetId)
+                WidgetStudioApp(
+                    viewModel = viewModel,
+                    deepLinkWidgetId = deepLinkWidgetId,
+                    onPinWidget = pinWidget
+                )
             }
         }
     }
@@ -107,7 +121,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?) {
+private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?, onPinWidget: () -> Unit) {
     val navController = rememberNavController()
     val state by viewModel.uiState.collectAsState()
     val widgets by viewModel.widgets.collectAsState()
@@ -116,8 +130,8 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
 
     LaunchedEffect(deepLinkWidgetId) {
         deepLinkWidgetId?.let {
-            viewModel.openDetail(it)
-            navController.navigate("detail/$it") { launchSingleTop = true }
+            viewModel.openEditor(it)
+            navController.navigate("editor") { launchSingleTop = true }
         }
     }
 
@@ -125,7 +139,6 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
         val route = when (state.screen) {
             AppScreen.LIST -> "list"
             AppScreen.EDITOR -> "editor"
-            AppScreen.DETAIL -> state.selectedWidgetId?.let { "detail/$it" } ?: "list"
             AppScreen.SETTINGS -> "settings"
         }
         if (navController.currentDestination?.route != route) {
@@ -179,9 +192,8 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
                 WidgetListScreen(
                     widgets = widgets,
                     onCreate = { viewModel.openCreate(); navController.navigate("editor") },
-                    onOpen = { viewModel.openDetail(it); navController.navigate("detail/$it") },
                     onEdit = { viewModel.openEditor(it); navController.navigate("editor") },
-                    onDelete = { viewModel.openDetail(it); viewModel.deleteSelectedWidget() }
+                    onDelete = { viewModel.deleteWidget(it) }
                 )
             }
             composable("editor") {
@@ -192,21 +204,7 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
                     onGenerate = viewModel::generateDsl,
                     onToggleAdvanced = viewModel::toggleAdvancedEditor,
                     onSave = viewModel::saveWidget,
-                    onPin = { requestPinWidget(context) }
-                )
-            }
-            composable("detail/{widgetId}") {
-                DetailScreen(
-                    state = state,
-                    onAction = viewModel::applyAction,
-                    onEdit = {
-                        state.selectedWidgetId?.let {
-                            viewModel.openEditor(it)
-                            navController.navigate("editor")
-                        }
-                    },
-                    onDelete = viewModel::deleteSelectedWidget,
-                    onPin = { requestPinWidget(context) }
+                    onPin = { viewModel.saveWidget(); onPinWidget() }
                 )
             }
             composable("settings") {
@@ -227,7 +225,6 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
 private fun WidgetListScreen(
     widgets: List<WidgetListEntry>,
     onCreate: () -> Unit,
-    onOpen: (String) -> Unit,
     onEdit: (String) -> Unit,
     onDelete: (String) -> Unit
 ) {
@@ -256,7 +253,6 @@ private fun WidgetListScreen(
                 items(widgets, key = { it.widget.widgetId }) { entry ->
                     WidgetCard(
                         entry = entry,
-                        onOpen = { onOpen(entry.widget.widgetId) },
                         onEdit = { onEdit(entry.widget.widgetId) },
                         onDelete = { onDelete(entry.widget.widgetId) }
                     )
@@ -273,9 +269,9 @@ private fun WidgetListScreen(
 }
 
 @Composable
-private fun WidgetCard(entry: WidgetListEntry, onOpen: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun WidgetCard(entry: WidgetListEntry, onEdit: () -> Unit, onDelete: () -> Unit) {
     Card(
-        onClick = onOpen,
+        onClick = onEdit,
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
@@ -291,15 +287,12 @@ private fun WidgetCard(entry: WidgetListEntry, onOpen: () -> Unit, onEdit: () ->
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = onEdit, modifier = Modifier.weight(1f)) { Text("Edit") }
-                if (entry.placementCount == 0) {
-                    OutlinedButton(
-                        onClick = onDelete,
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                    ) { Text("Delete") }
-                }
+            if (entry.placementCount == 0) {
+                OutlinedButton(
+                    onClick = onDelete,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text("Delete") }
             }
         }
     }
@@ -445,74 +438,141 @@ private fun EditorScreen(
     onPin: () -> Unit
 ) {
     val isEditing = state.editingWidgetId != null
+    val keyboard = LocalSoftwareKeyboardController.current
+    val onSendEdit = { keyboard?.hide(); onGenerate() }
+    val onSendCreate = { keyboard?.hide(); onGenerate() }
 
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        if (isEditing) {
-            Text("Request changes", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedTextField(
-                value = state.prompt,
-                onValueChange = onPromptChanged,
-                placeholder = { Text("e.g. Add a -1 button, change the background to blue") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 2
-            )
-            Button(
-                onClick = onGenerate,
-                enabled = state.generateStatus != OperationStatus.Loading,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                if (state.generateStatus == OperationStatus.Loading) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Updating…")
-                } else {
-                    Text("Update with AI")
-                }
-            }
-
-            Text("Widget JSON", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedTextField(
-                value = state.editorJson,
-                onValueChange = onJsonChanged,
-                modifier = Modifier.fillMaxWidth().height(320.dp)
-            )
-
-            state.previewWidget?.let { preview ->
-                Text("Preview", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    if (isEditing) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Scaffold(
+            bottomBar = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Box(modifier = Modifier.padding(12.dp)) {
-                        WidgetPreview(definition = preview.definition, state = preview.state)
-                    }
-                }
-            }
-
-            if (state.warnings.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    state.warnings.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-                }
-            }
-
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { onJsonChanged(state.editorJson) }, modifier = Modifier.weight(1f)) { Text("Validate") }
-                Button(
-                    onClick = onSave,
-                    enabled = state.saveStatus != OperationStatus.Loading,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    if (state.saveStatus == OperationStatus.Loading) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    OutlinedTextField(
+                        value = state.prompt,
+                        onValueChange = onPromptChanged,
+                        placeholder = { Text("Describe a change…") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 1,
+                        maxLines = 4,
+                        trailingIcon = {
+                            if (state.generateStatus == OperationStatus.Loading) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            } else {
+                                IconButton(
+                                    onClick = onSendEdit,
+                                    enabled = state.prompt.isNotBlank()
+                                ) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.Send,
+                                        contentDescription = "Apply changes",
+                                        tint = if (state.prompt.isNotBlank()) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                    )
+                                }
+                            }
+                        }
+                    )
+                    Button(
+                        onClick = onPin,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Filled.Home, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
+                        Text("Add to home screen")
                     }
-                    Text("Update widget")
                 }
             }
-        } else {
+        ) { innerPadding ->
+            Box(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(innerPadding)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                state.previewWidget?.let { preview ->
+                    Text(
+                        preview.definition.metadata.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (state.generateStatus != OperationStatus.Loading && state.prompt.isBlank()) {
+                        Text(
+                            "Tap send to refine · Changes preview instantly",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Box(modifier = Modifier.padding(12.dp)) {
+                            WidgetPreview(definition = preview.definition, state = preview.state)
+                        }
+                    }
+                }
+
+                if (state.warnings.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        state.warnings.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                    }
+                }
+
+                TextButton(onClick = onToggleAdvanced) {
+                    Text(if (state.showAdvancedEditor) "Hide advanced editor" else "Advanced: edit JSON manually")
+                }
+
+                AnimatedVisibility(visible = state.showAdvancedEditor) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedTextField(
+                            value = state.editorJson,
+                            onValueChange = onJsonChanged,
+                            label = { Text("Widget JSON") },
+                            modifier = Modifier.fillMaxWidth().height(320.dp)
+                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { onJsonChanged(state.editorJson) }, modifier = Modifier.weight(1f)) { Text("Validate") }
+                            Button(onClick = onSave, enabled = state.saveStatus != OperationStatus.Loading, modifier = Modifier.weight(1f)) { Text("Save") }
+                        }
+                    }
+                }
+
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
+        }
+
+            if (state.generateStatus == OperationStatus.Loading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        CircularProgressIndicator()
+                        Text("Applying changes…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    } else {
+        Column(
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
             Text("Describe your widget", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(
                 value = state.prompt,
@@ -523,7 +583,7 @@ private fun EditorScreen(
             )
 
             Button(
-                onClick = onGenerate,
+                onClick = onSendCreate,
                 enabled = state.generateStatus != OperationStatus.Loading,
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -580,90 +640,13 @@ private fun EditorScreen(
                     }
                 }
             }
-        }
 
-        Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(8.dp))
+        }
     }
 }
 
 @Composable
-private fun DetailScreen(
-    state: MainUiState,
-    onAction: (String) -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-    onPin: () -> Unit
-) {
-    if (state.validateStatus == OperationStatus.Loading) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-        return
-    }
-
-    val widget = state.runtimeWidget ?: return
-
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Column {
-            Text(widget.definition.metadata.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(
-                if (state.placementCount > 0) "On home screen (${state.placementCount} placement${if (state.placementCount > 1) "s" else ""})"
-                else "Not placed on home screen yet",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        if (widget.state.values.isNotEmpty()) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Current state", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    widget.state.values.forEach { (name, value) ->
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(name, style = MaterialTheme.typography.bodyMedium)
-                            Text(displayValue(value), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
-            }
-        }
-
-        val interactiveActions = widget.definition.actions.filter { it !is WidgetAction.OpenApp && it !is WidgetAction.OpenUrl }
-        if (interactiveActions.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Actions", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                interactiveActions.forEach { action ->
-                    FilledTonalButton(onClick = { onAction(action.id) }, modifier = Modifier.fillMaxWidth()) {
-                        Text(formatActionLabel(action))
-                    }
-                }
-            }
-        }
-
-        Button(onClick = onPin, modifier = Modifier.fillMaxWidth()) { Text("Add to home screen") }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f)) { Text("Edit") }
-            OutlinedButton(
-                onClick = onDelete,
-                enabled = state.placementCount == 0,
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-            ) { Text("Delete") }
-        }
-
-        if (state.placementCount > 0) {
-            Text("Remove this widget from your home screen before deleting.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
-        Spacer(Modifier.height(8.dp))
-    }
-}
-
 private fun requestPinWidget(context: Context) {
     val manager = AppWidgetManager.getInstance(context)
     val provider = ComponentName(context, WidgetGlanceReceiver::class.java)
@@ -686,6 +669,5 @@ private fun formatDate(timestamp: Long): String =
 private fun screenTitle(state: MainUiState): String = when (state.screen) {
     AppScreen.LIST -> "AI Widget Studio"
     AppScreen.EDITOR -> if (state.editingWidgetId == null) "Create widget" else "Edit widget"
-    AppScreen.DETAIL -> "Widget"
     AppScreen.SETTINGS -> "AI Settings"
 }

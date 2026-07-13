@@ -20,6 +20,7 @@ import com.example.aiwidgetstudio.domain.model.VariableValue
 import com.example.aiwidgetstudio.domain.model.WidgetAction
 import com.example.aiwidgetstudio.engine.runtime.RuntimeWidget
 import com.example.aiwidgetstudio.engine.runtime.WidgetRuntime
+import com.example.aiwidgetstudio.engine.state.WidgetStateCodec
 import com.example.aiwidgetstudio.engine.state.WidgetStateEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
@@ -33,7 +34,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class AppScreen { LIST, EDITOR, DETAIL, SETTINGS }
+enum class AppScreen { LIST, EDITOR, SETTINGS }
 
 data class ParsedSummary(
     val name: String = "",
@@ -55,12 +56,9 @@ data class MainUiState(
     val editorJson: String = "",
     val showAdvancedEditor: Boolean = false,
     val editingWidgetId: String? = null,
-    val selectedWidgetId: String? = null,
-    val runtimeWidget: RuntimeWidget? = null,
     val previewWidget: RuntimeWidget? = null,
     val warnings: List<String> = emptyList(),
     val parsedSummary: ParsedSummary? = null,
-    val placementCount: Int = 0,
     val validateStatus: OperationStatus = OperationStatus.Idle,
     val saveStatus: OperationStatus = OperationStatus.Idle,
     val generateStatus: OperationStatus = OperationStatus.Idle,
@@ -78,6 +76,7 @@ class MainViewModel @Inject constructor(
     private val modelManager: ModelManager,
     private val generatorPreference: GeneratorPreference,
     private val stateEngine: WidgetStateEngine,
+    private val stateCodec: WidgetStateCodec,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -117,13 +116,18 @@ class MainViewModel @Inject constructor(
     fun openEditor(widgetId: String) {
         viewModelScope.launch {
             val stored = repository.getWidgetWithState(widgetId) ?: return@launch
+            val processed = runtime.processDsl(stored.widget.dslJson).getOrNull()
+            val preview = processed?.let {
+                val state = stateCodec.decode(stored.state.stateJson, it.definition)
+                RuntimeWidget(it.definition, state)
+            }
             _uiState.update {
                 it.copy(
                     screen = AppScreen.EDITOR,
                     editorJson = stored.widget.dslJson,
                     editingWidgetId = widgetId,
-                    showAdvancedEditor = true,
-                    previewWidget = null,
+                    showAdvancedEditor = false,
+                    previewWidget = preview,
                     error = null
                 )
             }
@@ -205,7 +209,7 @@ class MainViewModel @Inject constructor(
 
         generateJob?.cancel()
         generateJob = viewModelScope.launch {
-            _uiState.update { it.copy(generateStatus = OperationStatus.Loading, error = null) }
+            _uiState.update { it.copy(generateStatus = OperationStatus.Loading, error = null, prompt = "") }
             val existingDsl = if (_uiState.value.editingWidgetId != null) _uiState.value.editorJson.ifBlank { null } else null
             generator.generate(prompt, existingDsl).collect { progress ->
                 when (val status = progress.status) {
@@ -261,40 +265,15 @@ class MainViewModel @Inject constructor(
                 }
             } else {
                 _uiState.update { it.copy(saveStatus = OperationStatus.Success) }
-                openDetail(widgetId)
+                showList()
             }
         }
     }
 
-    fun openDetail(widgetId: String) {
-        viewModelScope.launch {
-            _uiState.update {
-                MainUiState(
-                    screen = AppScreen.DETAIL,
-                    selectedWidgetId = widgetId,
-                    validateStatus = OperationStatus.Loading,
-                    generatorMode = it.generatorMode,
-                    modelSettings = it.modelSettings
-                )
-            }
-            reloadDetail(widgetId)
-        }
-    }
-
-    fun applyAction(actionId: String) {
-        val widgetId = _uiState.value.selectedWidgetId ?: return
-        viewModelScope.launch {
-            runtime.applyAction(widgetId, actionId)
-            reloadDetail(widgetId)
-        }
-    }
-
-    fun deleteSelectedWidget() {
-        val widgetId = _uiState.value.selectedWidgetId ?: return
+    fun deleteWidget(widgetId: String) {
         viewModelScope.launch {
             val deleted = runtime.deleteWidget(widgetId)
-            if (deleted) showList()
-            else _uiState.update { it.copy(error = "Remove this widget from the home screen before deleting it") }
+            if (!deleted) _uiState.update { it.copy(error = "Remove this widget from the home screen before deleting it") }
         }
     }
 
@@ -380,19 +359,6 @@ class MainViewModel @Inject constructor(
         val info = modelManager.getModelInfo()
         _uiState.update {
             it.copy(modelSettings = it.modelSettings.copy(fileName = info.fileName, sizeBytes = info.sizeBytes, ready = info.ready))
-        }
-    }
-
-    private suspend fun reloadDetail(widgetId: String) {
-        val widget = runtime.loadWidget(widgetId)
-        val placements = repository.getPlacementCount(widgetId)
-        _uiState.update {
-            it.copy(
-                runtimeWidget = widget,
-                placementCount = placements,
-                validateStatus = OperationStatus.Idle,
-                error = if (widget == null) "Unable to load widget" else null
-            )
         }
     }
 
