@@ -20,6 +20,7 @@ import com.example.aiwidgetstudio.domain.model.VariableValue
 import com.example.aiwidgetstudio.domain.model.WidgetAction
 import com.example.aiwidgetstudio.engine.runtime.RuntimeWidget
 import com.example.aiwidgetstudio.engine.runtime.WidgetRuntime
+import com.example.aiwidgetstudio.engine.state.WidgetStateEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import javax.inject.Inject
@@ -56,6 +57,7 @@ data class MainUiState(
     val editingWidgetId: String? = null,
     val selectedWidgetId: String? = null,
     val runtimeWidget: RuntimeWidget? = null,
+    val previewWidget: RuntimeWidget? = null,
     val warnings: List<String> = emptyList(),
     val parsedSummary: ParsedSummary? = null,
     val placementCount: Int = 0,
@@ -75,6 +77,7 @@ class MainViewModel @Inject constructor(
     private val localGenerator: LocalWidgetDslGenerator,
     private val modelManager: ModelManager,
     private val generatorPreference: GeneratorPreference,
+    private val stateEngine: WidgetStateEngine,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -105,7 +108,8 @@ class MainViewModel @Inject constructor(
             screen = AppScreen.EDITOR,
             prompt = _uiState.value.prompt,
             generatorMode = _uiState.value.generatorMode,
-            modelSettings = _uiState.value.modelSettings
+            modelSettings = _uiState.value.modelSettings,
+            previewWidget = null
         )
         persistEditorState()
     }
@@ -119,6 +123,7 @@ class MainViewModel @Inject constructor(
                     editorJson = stored.widget.dslJson,
                     editingWidgetId = widgetId,
                     showAdvancedEditor = true,
+                    previewWidget = null,
                     error = null
                 )
             }
@@ -216,7 +221,12 @@ class MainViewModel @Inject constructor(
                         _uiState.update { it.copy(editorJson = json) }
                         savedStateHandle[KEY_EDITOR_JSON] = json
                         validateDsl()
-                        _uiState.update { it.copy(generateStatus = OperationStatus.Success) }
+                        val processed = runtime.processDsl(json).getOrNull()
+                        val preview = processed?.let {
+                            val state = stateEngine.createInitialState(it.definition)
+                            RuntimeWidget(it.definition, state)
+                        }
+                        _uiState.update { it.copy(generateStatus = OperationStatus.Success, previewWidget = preview) }
                     }
                     is OperationStatus.Error -> {
                         _uiState.update { it.copy(generateStatus = status, error = status.message) }

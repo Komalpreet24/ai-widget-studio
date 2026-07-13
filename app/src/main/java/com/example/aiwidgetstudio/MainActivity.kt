@@ -79,6 +79,7 @@ import com.example.aiwidgetstudio.presentation.AppScreen
 import com.example.aiwidgetstudio.presentation.MainUiState
 import com.example.aiwidgetstudio.presentation.MainViewModel
 import com.example.aiwidgetstudio.presentation.OperationStatus
+import com.example.aiwidgetstudio.ui.WidgetPreview
 import com.example.aiwidgetstudio.ui.theme.AIWidgetStudioTheme
 import dagger.hilt.android.AndroidEntryPoint
 import java.text.DateFormat
@@ -190,7 +191,8 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?)
                     onJsonChanged = viewModel::updateEditorJson,
                     onGenerate = viewModel::generateDsl,
                     onToggleAdvanced = viewModel::toggleAdvancedEditor,
-                    onSave = viewModel::saveWidget
+                    onSave = viewModel::saveWidget,
+                    onPin = { requestPinWidget(context) }
                 )
             }
             composable("detail/{widgetId}") {
@@ -439,7 +441,8 @@ private fun EditorScreen(
     onJsonChanged: (String) -> Unit,
     onGenerate: () -> Unit,
     onToggleAdvanced: () -> Unit,
-    onSave: () -> Unit
+    onSave: () -> Unit,
+    onPin: () -> Unit
 ) {
     val isEditing = state.editingWidgetId != null
 
@@ -477,18 +480,14 @@ private fun EditorScreen(
                 modifier = Modifier.fillMaxWidth().height(320.dp)
             )
 
-            state.parsedSummary?.let { summary ->
+            state.previewWidget?.let { preview ->
+                Text("Preview", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(summary.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "${summary.variableCount} variables · ${summary.actionCount} actions · ${summary.uiNodeCount} UI elements",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
+                    Box(modifier = Modifier.padding(12.dp)) {
+                        WidgetPreview(definition = preview.definition, state = preview.state)
                     }
                 }
             }
@@ -537,31 +536,23 @@ private fun EditorScreen(
                 }
             }
 
-            state.parsedSummary?.let { summary ->
+            state.previewWidget?.let { preview ->
+                Text("Preview", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("✓ Widget ready", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                        Text(summary.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "${summary.variableCount} variables · ${summary.actionCount} actions · ${summary.uiNodeCount} UI elements",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
+                    Box(modifier = Modifier.padding(12.dp)) {
+                        WidgetPreview(definition = preview.definition, state = preview.state)
                     }
                 }
-                Button(
-                    onClick = onSave,
-                    enabled = state.saveStatus != OperationStatus.Loading,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    if (state.saveStatus == OperationStatus.Loading) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                        Spacer(Modifier.width(8.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onSave, enabled = state.saveStatus != OperationStatus.Loading, modifier = Modifier.weight(1f)) {
+                        Text("Save")
                     }
-                    Text("Save widget")
+                    Button(onClick = onPin, modifier = Modifier.weight(1f)) {
+                        Text("Add to home screen")
+                    }
                 }
             }
 
