@@ -57,6 +57,10 @@ class WidgetRepository @Inject constructor(
         return dao.getWidgetId(appWidgetId)
     }
 
+    fun observeWidgetId(appWidgetId: Int): Flow<String?> {
+        return dao.observeWidgetId(appWidgetId)
+    }
+
     suspend fun getAppWidgetIds(widgetId: String): List<Int> {
         return dao.getAppWidgetIds(widgetId)
     }

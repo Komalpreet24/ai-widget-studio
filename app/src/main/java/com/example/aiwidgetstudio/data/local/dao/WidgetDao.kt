@@ -95,6 +95,9 @@ interface WidgetDao {
     @Query("SELECT widgetId FROM WidgetInstanceEntity WHERE appWidgetId = :appWidgetId")
     suspend fun getWidgetId(appWidgetId: Int): String?
 
+    @Query("SELECT widgetId FROM WidgetInstanceEntity WHERE appWidgetId = :appWidgetId")
+    fun observeWidgetId(appWidgetId: Int): Flow<String?>
+
     @Query("SELECT appWidgetId FROM WidgetInstanceEntity WHERE widgetId = :widgetId")
     suspend fun getAppWidgetIds(widgetId: String): List<Int>
 

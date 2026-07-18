@@ -72,6 +72,17 @@ object WidgetGlanceContent {
     }
 
     @Composable
+    fun Loading() {
+        Column(
+            modifier = GlanceModifier.fillMaxSize().padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(text = "Loading…", style = TextStyle(fontSize = 14.sp))
+        }
+    }
+
+    @Composable
     fun Fallback(widgetId: String) {
         val context = LocalContext.current
         Column(

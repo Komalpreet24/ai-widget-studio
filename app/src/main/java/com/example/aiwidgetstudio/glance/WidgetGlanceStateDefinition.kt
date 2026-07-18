@@ -16,7 +16,8 @@ import java.util.concurrent.ConcurrentHashMap
 @Serializable
 data class WidgetGlanceState(
     val widgetId: String = "",
-    val stateJson: String = "{}"
+    val stateJson: String = "{}",
+    val widgetSizeKey: String = "MEDIUM"
 )
 
 object WidgetGlanceStateDefinition : GlanceStateDefinition<WidgetGlanceState> {
