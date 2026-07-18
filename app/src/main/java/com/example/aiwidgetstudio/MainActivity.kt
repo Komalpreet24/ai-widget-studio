@@ -3,6 +3,7 @@ package com.example.aiwidgetstudio
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -28,6 +29,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
@@ -39,7 +41,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -56,7 +57,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -67,17 +67,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.aiwidgetstudio.ai.GeneratorMode
 import com.example.aiwidgetstudio.data.local.dao.WidgetListEntry
-import com.example.aiwidgetstudio.domain.model.VariableValue
-import com.example.aiwidgetstudio.domain.model.WidgetAction
+import com.example.aiwidgetstudio.domain.model.WidgetSize
 import com.example.aiwidgetstudio.glance.WidgetGlanceReceiver
 import com.example.aiwidgetstudio.presentation.AppScreen
 import com.example.aiwidgetstudio.presentation.MainUiState
@@ -92,16 +91,38 @@ import java.util.Date
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
+    private var pendingPinWidgetId: String? = null
+    private var pendingPinExistingIds: Set<Int> = emptySet()
 
+    override fun onResume() {
+        super.onResume()
+        val widgetId = pendingPinWidgetId ?: return
+        val manager = AppWidgetManager.getInstance(this)
+        val provider = ComponentName(this, WidgetGlanceReceiver::class.java)
+        val allIds = manager.getAppWidgetIds(provider)
+        val newId = allIds.firstOrNull { it !in pendingPinExistingIds }
+        newId ?: return
+        pendingPinWidgetId = null
+        sendBroadcast(Intent(this, WidgetGlanceReceiver::class.java).apply {
+            action = ACTION_WIDGET_PINNED
+            putExtra(EXTRA_WIDGET_ID, widgetId)
+            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, newId)
+        })
+        viewModel.showList()
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val deepLinkWidgetId = intent?.getStringExtra(EXTRA_WIDGET_ID)
         val activity = this
-        val pinWidget: () -> Unit = {
+        val pinWidget: (widgetId: String) -> Unit = { widgetId ->
             val manager = AppWidgetManager.getInstance(activity)
             val provider = ComponentName(activity, WidgetGlanceReceiver::class.java)
-            if (manager.isRequestPinAppWidgetSupported) manager.requestPinAppWidget(provider, null, null)
+            if (manager.isRequestPinAppWidgetSupported) {
+                pendingPinWidgetId = widgetId
+                pendingPinExistingIds = manager.getAppWidgetIds(provider).toSet()
+                manager.requestPinAppWidget(provider, null, null)
+            }
         }
         setContent {
             AIWidgetStudioTheme {
@@ -116,17 +137,19 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_WIDGET_ID = "widgetId"
+        const val ACTION_WIDGET_PINNED = "com.example.aiwidgetstudio.ACTION_WIDGET_PINNED"
     }
 }
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?, onPinWidget: () -> Unit) {
+private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?, onPinWidget: (String) -> Unit) {
     val navController = rememberNavController()
     val state by viewModel.uiState.collectAsState()
     val widgets by viewModel.widgets.collectAsState()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val currentRoute by navController.currentBackStackEntryAsState()
 
     LaunchedEffect(deepLinkWidgetId) {
         deepLinkWidgetId?.let {
@@ -158,10 +181,16 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?,
 
     Scaffold(
         topBar = {
+            val title = when (currentRoute?.destination?.route) {
+                "editor" -> if (state.editingWidgetId == null) "Create widget" else "Edit widget"
+                "settings" -> "AI Settings"
+                else -> "AI Widget Studio"
+            }
+            val isRoot = currentRoute?.destination?.route == "list" || currentRoute == null
             TopAppBar(
-                title = { Text(screenTitle(state), fontWeight = FontWeight.SemiBold) },
+                title = { Text(title, fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
-                    if (state.screen != AppScreen.LIST) {
+                    if (!isRoot) {
                         IconButton(onClick = {
                             viewModel.showList()
                             navController.popBackStack("list", false)
@@ -171,7 +200,7 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?,
                     }
                 },
                 actions = {
-                    if (state.screen == AppScreen.LIST) {
+                    if (isRoot) {
                         TextButton(onClick = {
                             viewModel.showSettings()
                             navController.navigate("settings")
@@ -202,19 +231,21 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?,
                     onPromptChanged = viewModel::updatePrompt,
                     onJsonChanged = viewModel::updateEditorJson,
                     onGenerate = viewModel::generateDsl,
+                    onCancel = viewModel::cancelGeneration,
                     onToggleAdvanced = viewModel::toggleAdvancedEditor,
                     onSave = viewModel::saveWidget,
-                    onPin = { viewModel.saveWidget(); onPinWidget() }
+                    onPin = { viewModel.saveWidget { widgetId -> onPinWidget(widgetId) } },
+                    onSizeChanged = viewModel::setWidgetSize
                 )
             }
             composable("settings") {
                 SettingsScreen(
                     state = state,
                     onModeChange = viewModel::setGeneratorMode,
+                    onGeminiKeyChanged = viewModel::setGeminiApiKey,
+                    onDownload = viewModel::downloadModel,
                     onImport = viewModel::importModel,
-                    onRemove = viewModel::removeModel,
-                    onStartWatching = viewModel::startWatchingDownloads,
-                    onStopWatching = viewModel::stopWatchingDownloads
+                    onRemove = viewModel::removeModel
                 )
             }
         }
@@ -275,24 +306,46 @@ private fun WidgetCard(entry: WidgetListEntry, onEdit: () -> Unit, onDelete: () 
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(entry.widget.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                buildString {
-                    if (entry.placementCount > 0) append("On home screen · ") else append("Not placed · ")
-                    append("Updated ${formatDate(entry.widget.updatedAt)}")
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(8.dp))
-            if (entry.placementCount == 0) {
-                OutlinedButton(
-                    onClick = onDelete,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) { Text("Delete") }
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    entry.widget.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                if (entry.placementCount == 0) {
+                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                val onScreen = entry.placementCount > 0
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(
+                            color = if (onScreen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                            shape = androidx.compose.foundation.shape.CircleShape
+                        )
+                )
+                Text(
+                    if (onScreen) "On home screen" else "Not on home screen",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text("·", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "Updated ${formatDate(entry.widget.updatedAt)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
@@ -303,18 +356,15 @@ private fun WidgetCard(entry: WidgetListEntry, onEdit: () -> Unit, onDelete: () 
 private fun SettingsScreen(
     state: MainUiState,
     onModeChange: (GeneratorMode) -> Unit,
+    onGeminiKeyChanged: (String) -> Unit,
+    onDownload: () -> Unit,
     onImport: (android.net.Uri) -> Unit,
-    onRemove: () -> Unit,
-    onStartWatching: () -> Unit,
-    onStopWatching: () -> Unit
+    onRemove: () -> Unit
 ) {
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(onImport)
     }
-    val uriHandler = LocalUriHandler.current
-
-    LaunchedEffect(Unit) { onStartWatching() }
-    DisposableEffect(Unit) { onDispose { onStopWatching() } }
+    var keyInput by remember(state.geminiApiKey) { mutableStateOf(state.geminiApiKey) }
 
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -336,18 +386,32 @@ private fun SettingsScreen(
         }
 
         AnimatedVisibility(visible = state.generatorMode == GeneratorMode.GEMINI) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("✓ Gemini API configured", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "Uses Gemini 2.0 Flash. Requires internet. Free tier: 60 requests/min.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("✓ Gemini API configured", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Uses Gemini 2.0 Flash. Requires internet. Free tier: 60 requests/min.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
                 }
+                OutlinedTextField(
+                    value = keyInput,
+                    onValueChange = { keyInput = it },
+                    label = { Text("Custom API key (optional)") },
+                    placeholder = { Text("Paste your Gemini API key") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                Button(
+                    onClick = { onGeminiKeyChanged(keyInput.trim()) },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Save key") }
             }
         }
 
@@ -380,32 +444,31 @@ private fun SettingsScreen(
                 }
 
                 if (!state.modelSettings.ready) {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("How to get the model", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                            Text("1. Tap \"Open Kaggle\" — sign in or create a free account.", style = MaterialTheme.typography.bodySmall)
-                            Text("2. Download the Gemma 3n E2B IT int4 .litertlm file to your phone.", style = MaterialTheme.typography.bodySmall)
-                            Text("3. Return here — the model will import automatically.", style = MaterialTheme.typography.bodySmall)
+                    val isDownloading = state.modelSettings.downloadProgress != null
+                    if (isDownloading) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val progress = state.modelSettings.downloadProgress!!
+                            Text(
+                                "Downloading model… ${(progress * 100).toInt()}%",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            androidx.compose.material3.LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier.fillMaxWidth()
+                            )
                         }
+                    } else {
+                        Button(
+                            onClick = onDownload,
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Download model") }
                     }
-                    Button(
-                        onClick = { uriHandler.openUri("https://www.kaggle.com/models/google/gemma-3n/tfLite") },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Open Kaggle to download model") }
                 }
 
                 if (state.modelSettings.importStatus == OperationStatus.Loading) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                         Text("Importing model…", style = MaterialTheme.typography.bodySmall)
-                    }
-                } else if (!state.modelSettings.ready) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Text("Watching Downloads for .litertlm file…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
 
@@ -433,9 +496,11 @@ private fun EditorScreen(
     onPromptChanged: (String) -> Unit,
     onJsonChanged: (String) -> Unit,
     onGenerate: () -> Unit,
+    onCancel: () -> Unit,
     onToggleAdvanced: () -> Unit,
     onSave: () -> Unit,
-    onPin: () -> Unit
+    onPin: () -> Unit,
+    onSizeChanged: (WidgetSize) -> Unit
 ) {
     val isEditing = state.editingWidgetId != null
     val keyboard = LocalSoftwareKeyboardController.current
@@ -563,12 +628,22 @@ private fun EditorScreen(
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         CircularProgressIndicator()
-                        Text("Applying changes…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            if (state.generatorMode == com.example.aiwidgetstudio.ai.GeneratorMode.ON_DEVICE)
+                                "Running on-device model\u2026 This may take a few minutes"
+                            else "Applying changes\u2026",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 32.dp)
+                        )
+                        TextButton(onClick = onCancel) { Text("Cancel") }
                     }
                 }
             }
         }
     } else {
+        Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -582,6 +657,18 @@ private fun EditorScreen(
                 minLines = 3
             )
 
+            Text("Widget size", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                WidgetSize.entries.forEachIndexed { index, size ->
+                    SegmentedButton(
+                        selected = state.selectedSize == size,
+                        onClick = { onSizeChanged(size) },
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = WidgetSize.entries.size),
+                        label = { Text(size.label) }
+                    )
+                }
+            }
+
             Button(
                 onClick = onSendCreate,
                 enabled = state.generateStatus != OperationStatus.Loading,
@@ -590,10 +677,14 @@ private fun EditorScreen(
                 if (state.generateStatus == OperationStatus.Loading) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
                     Spacer(Modifier.width(8.dp))
-                    Text("Creating widget…")
+                    Text(if (state.generatorMode == com.example.aiwidgetstudio.ai.GeneratorMode.ON_DEVICE) "Running on-device…" else "Creating widget…")
                 } else {
                     Text("Create with AI")
                 }
+            }
+
+            if (state.generateStatus == OperationStatus.Loading && state.generatorMode == com.example.aiwidgetstudio.ai.GeneratorMode.ON_DEVICE) {
+                TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
             }
 
             state.previewWidget?.let { preview ->
@@ -643,31 +734,33 @@ private fun EditorScreen(
 
             Spacer(Modifier.height(8.dp))
         }
+
+        if (state.generateStatus == OperationStatus.Loading && state.generatorMode == com.example.aiwidgetstudio.ai.GeneratorMode.ON_DEVICE) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    CircularProgressIndicator()
+                    Text(
+                        "Running on-device model\u2026 This may take a few minutes",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 32.dp)
+                    )
+                    TextButton(onClick = onCancel) { Text("Cancel") }
+                }
+            }
+        }
+        } // end Box
     }
 }
 
-@Composable
-private fun requestPinWidget(context: Context) {
-    val manager = AppWidgetManager.getInstance(context)
-    val provider = ComponentName(context, WidgetGlanceReceiver::class.java)
-    if (manager.isRequestPinAppWidgetSupported) manager.requestPinAppWidget(provider, null, null)
-}
-
-private fun displayValue(value: VariableValue): String = when (value) {
-    is VariableValue.BooleanValue -> value.value.toString()
-    is VariableValue.DoubleValue -> value.value.toString()
-    is VariableValue.IntValue -> value.value.toString()
-    is VariableValue.StringValue -> value.value
-}
-
-private fun formatActionLabel(action: WidgetAction): String =
-    action.id.replace(Regex("([a-z])([A-Z])"), "$1 $2").replace("_", " ").replaceFirstChar { it.uppercase() }
-
 private fun formatDate(timestamp: Long): String =
     DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(timestamp))
-
-private fun screenTitle(state: MainUiState): String = when (state.screen) {
-    AppScreen.LIST -> "AI Widget Studio"
-    AppScreen.EDITOR -> if (state.editingWidgetId == null) "Create widget" else "Edit widget"
-    AppScreen.SETTINGS -> "AI Settings"
-}

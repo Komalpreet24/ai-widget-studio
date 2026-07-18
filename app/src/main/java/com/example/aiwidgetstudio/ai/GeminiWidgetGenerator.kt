@@ -1,12 +1,15 @@
 package com.example.aiwidgetstudio.ai
 
+import android.content.Context
 import com.example.aiwidgetstudio.BuildConfig
+import com.example.aiwidgetstudio.ai.GeneratorPreference
 import com.example.aiwidgetstudio.engine.WidgetDslProcessor
 import com.example.aiwidgetstudio.presentation.OperationStatus
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.RequestOptions
 import com.google.ai.client.generativeai.type.content
 import com.google.ai.client.generativeai.type.generationConfig
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
@@ -19,22 +22,28 @@ data class GenerationProgress(
 
 @Singleton
 class GeminiWidgetGenerator @Inject constructor(
-    private val processor: WidgetDslProcessor
+    private val processor: WidgetDslProcessor,
+    private val generatorPreference: GeneratorPreference,
+    @ApplicationContext private val context: Context
 ) : WidgetGenerator {
+
+    private val systemPrompt: String by lazy {
+        context.assets.open("prompt_online.md").bufferedReader().readText()
+    }
 
     override fun generate(prompt: String, existingDsl: String?): Flow<GenerationProgress> = flow {
         emit(GenerationProgress(status = OperationStatus.Loading))
         try {
             val model = GenerativeModel(
                 modelName = "gemini-3.5-flash",
-                apiKey = BuildConfig.GEMINI_API_KEY,
+                apiKey = generatorPreference.geminiApiKey.ifBlank { BuildConfig.GEMINI_API_KEY },
                 generationConfig = generationConfig {
                     temperature = 0.2f
                     topK = 20
                     topP = 0.9f
                     responseMimeType = "application/json"
                 },
-                systemInstruction = content { text(SYSTEM_PROMPT) },
+                systemInstruction = content { text(systemPrompt) },
                 requestOptions = RequestOptions(apiVersion = "v1beta")
             )
             val userMessage = if (existingDsl != null) {
@@ -66,40 +75,4 @@ class GeminiWidgetGenerator @Inject constructor(
         }
     }
 
-    companion object {
-        private val SYSTEM_PROMPT = """
-            You are a widget DSL generator. Output ONLY valid JSON, no explanation, no markdown, no code blocks.
-
-            Schema:
-            {
-              "dslVersion": 1,
-              "metadata": { "name": "string" },
-              "data": {
-                "updatePolicy": { "type": "NONE" | "DAILY_RESET" | "PERIODIC", "hour": int, "minute": int, "intervalMinutes": int },
-                "variables": [ { "name": "string", "type": "INT" | "BOOLEAN" | "STRING" | "DOUBLE", "default": value, "min": int, "max": int } ]
-              },
-              "actions": [
-                { "id": "string", "type": "INCREMENT" | "DECREMENT" | "RESET" | "SET_VALUE" | "TOGGLE" | "OPEN_URL", "target": "variableName", "step": int, "value": any, "url": "string" }
-              ],
-              "ui": <UiNode>
-            }
-
-            UiNode types:
-            - { "type": "COLUMN" | "ROW", "style": {}, "children": [<UiNode>] }
-            - { "type": "CARD" | "BOX", "style": {}, "child": <UiNode> }
-            - { "type": "TEXT", "style": {}, "value": "use {{variableName}} to reference variables" }
-            - { "type": "BUTTON", "style": {}, "text": "string", "action": "actionId" }
-            - { "type": "PROGRESS", "style": {}, "current": "{{variableName}}", "max": "{{variableName}} or number" }
-            - { "type": "SPACER", "style": {}, "height": int, "width": int }
-            - { "type": "DIVIDER", "style": {} }
-
-            Style fields (all optional): textColor, backgroundColor, cornerRadius, padding, margin (int or {left,top,right,bottom}), alignment (START|CENTER|END), arrangement (START|CENTER|END), height, width
-
-            Rules:
-            - Every action id must be unique
-            - Button action field must match an action id exactly
-            - Variable names in {{}} must match a defined variable name exactly
-            - Keep widgets simple and focused
-        """.trimIndent()
-    }
 }

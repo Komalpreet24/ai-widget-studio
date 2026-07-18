@@ -1,9 +1,6 @@
 package com.example.aiwidgetstudio.presentation
 
 import android.net.Uri
-import android.os.Build
-import android.os.Environment
-import android.os.FileObserver
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -15,15 +12,12 @@ import com.example.aiwidgetstudio.ai.LocalWidgetDslGenerator
 import com.example.aiwidgetstudio.ai.ModelManager
 import com.example.aiwidgetstudio.data.local.dao.WidgetListEntry
 import com.example.aiwidgetstudio.data.repository.WidgetRepository
-import com.example.aiwidgetstudio.domain.model.UiNode
-import com.example.aiwidgetstudio.domain.model.VariableValue
-import com.example.aiwidgetstudio.domain.model.WidgetAction
+import com.example.aiwidgetstudio.domain.model.WidgetSize
 import com.example.aiwidgetstudio.engine.runtime.RuntimeWidget
 import com.example.aiwidgetstudio.engine.runtime.WidgetRuntime
 import com.example.aiwidgetstudio.engine.state.WidgetStateCodec
 import com.example.aiwidgetstudio.engine.state.WidgetStateEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
-import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,7 +41,8 @@ data class ModelSettingsState(
     val fileName: String = "",
     val sizeBytes: Long = 0,
     val ready: Boolean = false,
-    val importStatus: OperationStatus = OperationStatus.Idle
+    val importStatus: OperationStatus = OperationStatus.Idle,
+    val downloadProgress: Float? = null
 )
 
 data class MainUiState(
@@ -57,12 +52,13 @@ data class MainUiState(
     val showAdvancedEditor: Boolean = false,
     val editingWidgetId: String? = null,
     val previewWidget: RuntimeWidget? = null,
+    val selectedSize: WidgetSize = WidgetSize.MEDIUM,
     val warnings: List<String> = emptyList(),
-    val parsedSummary: ParsedSummary? = null,
     val validateStatus: OperationStatus = OperationStatus.Idle,
     val saveStatus: OperationStatus = OperationStatus.Idle,
     val generateStatus: OperationStatus = OperationStatus.Idle,
     val generatorMode: GeneratorMode = GeneratorMode.GEMINI,
+    val geminiApiKey: String = "",
     val modelSettings: ModelSettingsState = ModelSettingsState(),
     val error: String? = null
 )
@@ -90,27 +86,26 @@ class MainViewModel @Inject constructor(
         MainUiState(
             prompt = savedStateHandle.get<String>(KEY_PROMPT).orEmpty(),
             editorJson = savedStateHandle.get<String>(KEY_EDITOR_JSON).orEmpty(),
-            generatorMode = generatorPreference.mode
+            generatorMode = generatorPreference.mode,
+            geminiApiKey = generatorPreference.geminiApiKey
         )
     )
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
     private var generateJob: Job? = null
-    private var downloadsObserver: FileObserver? = null
 
     init {
         viewModelScope.launch { refreshModelInfo() }
     }
 
     fun openCreate() {
+        savedStateHandle[KEY_PROMPT] = ""
+        savedStateHandle[KEY_EDITOR_JSON] = ""
         _uiState.value = MainUiState(
             screen = AppScreen.EDITOR,
-            prompt = _uiState.value.prompt,
             generatorMode = _uiState.value.generatorMode,
-            modelSettings = _uiState.value.modelSettings,
-            previewWidget = null
+            modelSettings = _uiState.value.modelSettings
         )
-        persistEditorState()
     }
 
     fun openEditor(widgetId: String) {
@@ -124,6 +119,7 @@ class MainViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     screen = AppScreen.EDITOR,
+                    prompt = "",
                     editorJson = stored.widget.dslJson,
                     editingWidgetId = widgetId,
                     showAdvancedEditor = false,
@@ -134,6 +130,10 @@ class MainViewModel @Inject constructor(
             persistEditorState()
             validateDsl()
         }
+    }
+
+    fun setWidgetSize(size: WidgetSize) {
+        _uiState.update { it.copy(selectedSize = size) }
     }
 
     fun updatePrompt(value: String) {
@@ -154,12 +154,15 @@ class MainViewModel @Inject constructor(
         _uiState.update { it.copy(error = null) }
     }
 
+    fun setGeminiApiKey(key: String) {
+        generatorPreference.geminiApiKey = key
+        _uiState.update { it.copy(geminiApiKey = key) }
+    }
+
     fun setGeneratorMode(mode: GeneratorMode) {
         generatorPreference.mode = mode
         _uiState.update { it.copy(generatorMode = mode) }
     }
-
-    fun updateGeminiApiKey(key: String) { }
 
     fun validateDsl() {
         if (_uiState.value.validateStatus == OperationStatus.Loading) return
@@ -171,7 +174,6 @@ class MainViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     warnings = emptyList(),
-                    parsedSummary = null,
                     validateStatus = OperationStatus.Error(result.exceptionOrNull()?.message ?: "Invalid widget DSL"),
                     error = result.exceptionOrNull()?.message ?: "Invalid widget DSL"
                 )
@@ -182,16 +184,15 @@ class MainViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 warnings = processed.warnings.map { w -> w.message },
-                parsedSummary = ParsedSummary(
-                    name = processed.definition.metadata.name,
-                    variableCount = processed.definition.data.variables.size,
-                    actionCount = processed.definition.actions.size,
-                    uiNodeCount = countUiNodes(processed.definition.ui)
-                ),
                 validateStatus = OperationStatus.Success,
                 error = null
             )
         }
+    }
+
+    fun cancelGeneration() {
+        generateJob?.cancel()
+        _uiState.update { it.copy(generateStatus = OperationStatus.Idle) }
     }
 
     fun generateDsl() {
@@ -209,9 +210,10 @@ class MainViewModel @Inject constructor(
 
         generateJob?.cancel()
         generateJob = viewModelScope.launch {
-            _uiState.update { it.copy(generateStatus = OperationStatus.Loading, error = null, prompt = "") }
+            _uiState.update { it.copy(generateStatus = OperationStatus.Loading, error = null) }
             val existingDsl = if (_uiState.value.editingWidgetId != null) _uiState.value.editorJson.ifBlank { null } else null
-            generator.generate(prompt, existingDsl).collect { progress ->
+            val sizeHint = if (_uiState.value.editingWidgetId == null) " Target size: ${_uiState.value.selectedSize.name} (${_uiState.value.selectedSize.label})." else ""
+            generator.generate(prompt + sizeHint, existingDsl).collect { progress ->
                 when (val status = progress.status) {
                     OperationStatus.Loading -> {
                         val json = AiOutputExtractor.extractWidgetJson(progress.partialText)
@@ -222,7 +224,7 @@ class MainViewModel @Inject constructor(
                     }
                     OperationStatus.Success -> {
                         val json = AiOutputExtractor.extractWidgetJson(progress.partialText) ?: progress.partialText
-                        _uiState.update { it.copy(editorJson = json) }
+                        _uiState.update { it.copy(editorJson = json, prompt = "") }
                         savedStateHandle[KEY_EDITOR_JSON] = json
                         validateDsl()
                         val processed = runtime.processDsl(json).getOrNull()
@@ -241,7 +243,7 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    fun saveWidget() {
+    fun saveWidget(onSaved: ((String) -> Unit)? = null) {
         if (_uiState.value.saveStatus == OperationStatus.Loading) return
         validateDsl()
         if (_uiState.value.validateStatus is OperationStatus.Error) return
@@ -265,6 +267,7 @@ class MainViewModel @Inject constructor(
                 }
             } else {
                 _uiState.update { it.copy(saveStatus = OperationStatus.Success) }
+                onSaved?.invoke(widgetId)
                 showList()
             }
         }
@@ -297,11 +300,36 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    fun downloadModel() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(modelSettings = it.modelSettings.copy(downloadProgress = 0f)) }
+            val result = modelManager.downloadModel { progress ->
+                _uiState.update { it.copy(modelSettings = it.modelSettings.copy(downloadProgress = progress)) }
+            }
+            localGenerator.invalidateEngine()
+            viewModelScope.launch { localGenerator.warmUp() }
+            refreshModelInfo()
+            _uiState.update {
+                it.copy(
+                    modelSettings = it.modelSettings.copy(
+                        downloadProgress = null,
+                        importStatus = result.fold(
+                            onSuccess = { OperationStatus.Success },
+                            onFailure = { e -> OperationStatus.Error(e.message ?: "Download failed") }
+                        )
+                    ),
+                    error = result.exceptionOrNull()?.message
+                )
+            }
+        }
+    }
+
     fun importModel(uri: Uri) {
         viewModelScope.launch {
             _uiState.update { it.copy(modelSettings = it.modelSettings.copy(importStatus = OperationStatus.Loading)) }
             val result = modelManager.importModel(uri)
             localGenerator.invalidateEngine()
+            viewModelScope.launch { localGenerator.warmUp() }
             refreshModelInfo()
             _uiState.update {
                 it.copy(
@@ -325,36 +353,6 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    fun startWatchingDownloads() {
-        if (downloadsObserver != null) return
-        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        val mask = FileObserver.CLOSE_WRITE or FileObserver.MOVED_TO
-        downloadsObserver = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            object : FileObserver(downloadsDir, mask) {
-                override fun onEvent(event: Int, path: String?) {
-                    if (path?.endsWith(".litertlm", ignoreCase = true) == true) {
-                        viewModelScope.launch { importModel(Uri.fromFile(File(downloadsDir, path))) }
-                    }
-                }
-            }
-        } else {
-            @Suppress("DEPRECATION")
-            object : FileObserver(downloadsDir.absolutePath, mask) {
-                override fun onEvent(event: Int, path: String?) {
-                    if (path?.endsWith(".litertlm", ignoreCase = true) == true) {
-                        viewModelScope.launch { importModel(Uri.fromFile(File(downloadsDir, path))) }
-                    }
-                }
-            }
-        }
-        downloadsObserver?.startWatching()
-    }
-
-    fun stopWatchingDownloads() {
-        downloadsObserver?.stopWatching()
-        downloadsObserver = null
-    }
-
     private suspend fun refreshModelInfo() {
         val info = modelManager.getModelInfo()
         _uiState.update {
@@ -365,14 +363,6 @@ class MainViewModel @Inject constructor(
     private fun persistEditorState() {
         savedStateHandle[KEY_PROMPT] = _uiState.value.prompt
         savedStateHandle[KEY_EDITOR_JSON] = _uiState.value.editorJson
-    }
-
-    private fun countUiNodes(node: UiNode): Int = when (node) {
-        is UiNode.Box -> 1 + countUiNodes(node.child)
-        is UiNode.Card -> 1 + countUiNodes(node.child)
-        is UiNode.Column -> 1 + node.children.sumOf { countUiNodes(it) }
-        is UiNode.Row -> 1 + node.children.sumOf { countUiNodes(it) }
-        else -> 1
     }
 
     companion object {

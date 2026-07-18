@@ -75,6 +75,7 @@ dependencies {
     implementation(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.compiler)
     implementation(libs.gemini.android)
+    implementation(libs.mediapipe.tasks.genai)
     implementation(libs.litertlm.android)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)

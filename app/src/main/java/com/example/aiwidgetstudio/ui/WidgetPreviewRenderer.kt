@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -27,17 +28,20 @@ import com.example.aiwidgetstudio.domain.model.UiNodeMargin
 import com.example.aiwidgetstudio.domain.model.UiNodeStyle
 import com.example.aiwidgetstudio.domain.model.WidgetAlignment
 import com.example.aiwidgetstudio.domain.model.WidgetDefinition
+import com.example.aiwidgetstudio.domain.model.WidgetSize
 import com.example.aiwidgetstudio.engine.state.WidgetState
 import com.example.aiwidgetstudio.glance.BindingResolver
 
 @Composable
 fun WidgetPreview(definition: WidgetDefinition, state: WidgetState) {
+    val size = definition.metadata.size
+    val aspectRatio = size.widthDp.toFloat() / size.heightDp.toFloat()
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .aspectRatio(aspectRatio)
             .clip(RoundedCornerShape(16.dp))
             .background(Color(0xFFFAFAFA))
-            .padding(12.dp)
     ) {
         PreviewNode(definition, state, definition.ui, depth = 1)
     }

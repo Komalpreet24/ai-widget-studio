@@ -8,9 +8,10 @@ import com.example.aiwidgetstudio.domain.model.VariableDefinition
 import com.example.aiwidgetstudio.domain.model.VariableValue
 import com.example.aiwidgetstudio.domain.model.WidgetAction
 import com.example.aiwidgetstudio.domain.model.WidgetAlignment
+import com.example.aiwidgetstudio.domain.model.WidgetMetadata
+import com.example.aiwidgetstudio.domain.model.WidgetSize
 import com.example.aiwidgetstudio.domain.model.WidgetData
 import com.example.aiwidgetstudio.domain.model.WidgetDefinition
-import com.example.aiwidgetstudio.domain.model.WidgetMetadata
 import com.example.aiwidgetstudio.engine.parser.dto.DslDataDto
 import com.example.aiwidgetstudio.engine.parser.dto.DslMetadataDto
 import com.example.aiwidgetstudio.engine.parser.dto.DslWidgetDto
@@ -36,9 +37,13 @@ class WidgetDslMapper @Inject constructor() {
 
     private fun mapMetadata(metadata: DslMetadataDto?): WidgetMetadata {
         return WidgetMetadata(
-            metadata?.name
-                ?.takeIf { it.isNotBlank() }
-                ?: "Untitled"
+            name = metadata?.name?.takeIf { it.isNotBlank() } ?: "Untitled",
+            size = when (metadata?.size?.uppercase()) {
+                "SMALL", "2X1" -> WidgetSize.SMALL
+                "WIDE", "4X2" -> WidgetSize.WIDE
+                "LARGE", "4X4" -> WidgetSize.LARGE
+                else -> WidgetSize.MEDIUM
+            }
         )
     }
 
