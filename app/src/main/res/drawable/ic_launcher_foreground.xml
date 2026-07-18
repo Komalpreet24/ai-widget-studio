@@ -5,58 +5,9 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Top-left widget tile -->
+    <!-- Single centered 4-pointed star -->
     <path
-        android:pathData="M22,28 L46,28 Q50,28 50,32 L50,50 Q50,54 46,54 L22,54 Q18,54 18,50 L18,32 Q18,28 22,28 Z"
         android:fillColor="#FFFFFF"
-        android:fillAlpha="0.95"/>
-
-    <!-- Bottom-left widget tile -->
-    <path
-        android:pathData="M22,58 L46,58 Q50,58 50,62 L50,80 Q50,84 46,84 L22,84 Q18,84 18,80 L18,62 Q18,58 22,58 Z"
-        android:fillColor="#FFFFFF"
-        android:fillAlpha="0.7"/>
-
-    <!-- Bottom-right widget tile (wide) -->
-    <path
-        android:pathData="M54,58 L86,58 Q90,58 90,62 L90,80 Q90,84 86,84 L54,84 Q50,84 50,80 L50,62 Q50,58 54,58 Z"
-        android:fillColor="#FFFFFF"
-        android:fillAlpha="0.7"/>
-
-    <!-- Top-right: AI sparkle star -->
-    <!-- Vertical bar -->
-    <path
-        android:pathData="M70,24 L70,48"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="4"
-        android:strokeLineCap="round"/>
-    <!-- Horizontal bar -->
-    <path
-        android:pathData="M58,36 L82,36"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="4"
-        android:strokeLineCap="round"/>
-    <!-- Diagonal TL-BR -->
-    <path
-        android:pathData="M61,27 L79,45"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="2.5"
-        android:strokeLineCap="round"/>
-    <!-- Diagonal TR-BL -->
-    <path
-        android:pathData="M79,27 L61,45"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="2.5"
-        android:strokeLineCap="round"/>
-
-    <!-- Small accent dot on top-left tile -->
-    <path
-        android:pathData="M28,38 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0"
-        android:fillColor="#1A237E"
-        android:fillAlpha="0.5"/>
-    <path
-        android:pathData="M38,38 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0"
-        android:fillColor="#1A237E"
-        android:fillAlpha="0.5"/>
+        android:pathData="M54,20 L59.5,48.5 L88,54 L59.5,59.5 L54,88 L48.5,59.5 L20,54 L48.5,48.5 Z"/>
 
 </vector>
