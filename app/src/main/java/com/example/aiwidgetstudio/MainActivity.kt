@@ -10,9 +10,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import com.example.aiwidgetstudio.data.PermissionRequest
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,10 +35,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -43,7 +49,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,11 +65,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -73,6 +79,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
@@ -80,10 +88,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.aiwidgetstudio.ai.GeneratorMode
+import com.example.aiwidgetstudio.ai.WidgetTheme
 import com.example.aiwidgetstudio.data.local.dao.WidgetListEntry
 import com.example.aiwidgetstudio.domain.model.WidgetSize
-import com.example.aiwidgetstudio.domain.model.WidgetTemplate
-import com.example.aiwidgetstudio.domain.model.WidgetTemplateRepository
 import com.example.aiwidgetstudio.glance.WidgetGlanceReceiver
 import com.example.aiwidgetstudio.presentation.AppScreen
 import com.example.aiwidgetstudio.presentation.MainUiState
@@ -186,6 +193,22 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?,
         }
     }
 
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { viewModel.dismissPermissionRequest() }
+
+    if (state.missingPermissions.isNotEmpty()) {
+        PermissionsBottomSheet(
+            permissions = state.missingPermissions,
+            onDismiss = viewModel::dismissPermissionRequest,
+            onGrant = { runtimePerms, specialIntents ->
+                specialIntents.forEach { context.startActivity(it) }
+                if (runtimePerms.isNotEmpty()) permissionLauncher.launch(runtimePerms.toTypedArray())
+                else viewModel.dismissPermissionRequest()
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             val title = when (currentRoute?.destination?.route) {
@@ -243,13 +266,14 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?,
                     onSave = viewModel::saveWidget,
                     onPin = { viewModel.saveWidget { widgetId -> onPinWidget(widgetId) } },
                     onSizeChanged = viewModel::setWidgetSize,
-                    onTemplateSelected = viewModel::loadTemplate
+                    onDismissWarning = viewModel::dismissCapabilityWarning,
                 )
             }
             composable("settings") {
                 SettingsScreen(
                     state = state,
                     onModeChange = viewModel::setGeneratorMode,
+                    onThemeChange = viewModel::setWidgetTheme,
                     onGeminiKeyChanged = viewModel::setGeminiApiKey,
                     onDownload = viewModel::downloadModel,
                     onImport = viewModel::importModel,
@@ -364,6 +388,7 @@ private fun WidgetCard(entry: WidgetListEntry, onEdit: () -> Unit, onDelete: () 
 private fun SettingsScreen(
     state: MainUiState,
     onModeChange: (GeneratorMode) -> Unit,
+    onThemeChange: (WidgetTheme) -> Unit,
     onGeminiKeyChanged: (String) -> Unit,
     onDownload: () -> Unit,
     onImport: (android.net.Uri) -> Unit,
@@ -495,6 +520,24 @@ private fun SettingsScreen(
                 }
             }
         }
+
+        HorizontalDivider()
+        Text("Widget theme", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            WidgetTheme.entries.forEachIndexed { index, theme ->
+                SegmentedButton(
+                    selected = state.widgetTheme == theme,
+                    onClick = { onThemeChange(theme) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = WidgetTheme.entries.size)
+                ) {
+                    Text(when (theme) {
+                        WidgetTheme.SYSTEM -> "System"
+                        WidgetTheme.LIGHT -> "Light"
+                        WidgetTheme.DARK -> "Dark"
+                    })
+                }
+            }
+        }
     }
 }
 
@@ -509,154 +552,162 @@ private fun EditorScreen(
     onSave: () -> Unit,
     onPin: () -> Unit,
     onSizeChanged: (WidgetSize) -> Unit,
-    onTemplateSelected: (WidgetTemplate) -> Unit
+    onDismissWarning: () -> Unit,
 ) {
-    val isEditing = state.editingWidgetId != null
+    val hasWidget = state.previewWidget != null || state.editingWidgetId != null
     val keyboard = LocalSoftwareKeyboardController.current
-    val onSendEdit = { keyboard?.hide(); onGenerate() }
-    val onSendCreate = { keyboard?.hide(); onGenerate() }
+    val send = { keyboard?.hide(); onGenerate() }
 
-    if (isEditing) {
+    if (hasWidget) {
+        // ── Canvas mode: widget is the hero, prompt bar always refines ──
         Box(modifier = Modifier.fillMaxSize()) {
             Scaffold(
-            bottomBar = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surface)
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedTextField(
-                        value = state.prompt,
-                        onValueChange = onPromptChanged,
-                        placeholder = { Text("Describe a change…") },
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 1,
-                        maxLines = 4,
-                        trailingIcon = {
-                            if (state.generateStatus == OperationStatus.Loading) {
-                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                            } else {
-                                IconButton(
-                                    onClick = onSendEdit,
-                                    enabled = state.prompt.isNotBlank()
-                                ) {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.Send,
-                                        contentDescription = "Apply changes",
-                                        tint = if (state.prompt.isNotBlank()) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                                    )
+                bottomBar = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (state.capabilityWarning != null) {
+                            CapabilityWarningBanner(
+                                warning = state.capabilityWarning,
+                                hint = state.capabilityHint,
+                                onDismiss = onDismissWarning,
+                                onUseSuggestion = state.capabilityHint?.let { hint ->
+                                    { onPromptChanged(hint.removePrefix("Try: ").removeSuffix(" instead")) }
+                                }
+                            )
+                        }
+                        OutlinedTextField(
+                            value = state.prompt,
+                            onValueChange = onPromptChanged,
+                            placeholder = { Text("Describe a change…") },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 1,
+                            maxLines = 4,
+                            trailingIcon = {
+                                if (state.generateStatus == OperationStatus.Loading) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                } else {
+                                    IconButton(onClick = send, enabled = state.prompt.isNotBlank()) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.Send,
+                                            contentDescription = "Apply changes",
+                                            tint = if (state.prompt.isNotBlank()) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                        )
+                                    }
                                 }
                             }
+                        )
+                        Button(onClick = onPin, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Filled.Home, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Add to home screen")
                         }
-                    )
-                    Button(
-                        onClick = onPin,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Filled.Home, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Add to home screen")
                     }
                 }
-            }
-        ) { innerPadding ->
-            Box(modifier = Modifier.fillMaxSize()) {
+            ) { innerPadding ->
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
                         .padding(innerPadding)
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                if (state.originalPrompt.isNotBlank()) {
-                    var editingOriginal by remember { mutableStateOf(false) }
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                state.originalPrompt,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.weight(1f)
+                    // Widget name + start-over
+                    state.previewWidget?.let { preview ->
+                        Text(
+                                preview.definition.metadata.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
                             )
-                            IconButton(
-                                onClick = {
-                                    onPromptChanged(state.originalPrompt)
-                                },
-                                modifier = Modifier.size(32.dp)
+                    }
+
+                    // Original prompt chip — tap to restore into prompt bar
+                    if (state.originalPrompt.isNotBlank()) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    Icons.Default.Edit,
-                                    contentDescription = "Edit original prompt",
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                Text(
+                                    "Original: ${state.originalPrompt}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.weight(1f)
                                 )
+                                IconButton(
+                                    onClick = { onPromptChanged(state.originalPrompt) },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Edit,
+                                        contentDescription = "Restore original prompt",
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                }
                             }
                         }
                     }
-                }
-                state.previewWidget?.let { preview ->
-                    Text(
-                        preview.definition.metadata.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    if (state.generateStatus != OperationStatus.Loading && state.prompt.isBlank()) {
-                        Text(
-                            "Tap send to refine · Changes preview instantly",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                    ) {
-                        Box(modifier = Modifier.padding(12.dp)) {
-                            WidgetPreview(definition = preview.definition, state = preview.state)
+
+                    // Widget preview card
+                    state.previewWidget?.let { preview ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Box(modifier = Modifier.padding(12.dp)) {
+                                WidgetPreview(definition = preview.definition, state = preview.state)
+                            }
+                        }
+                        if (state.generateStatus != OperationStatus.Loading && state.prompt.isBlank()) {
+                            Text(
+                                "Type below to refine · Changes preview instantly",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
-                }
 
-                if (state.warnings.isNotEmpty()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        state.warnings.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-                    }
-                }
-
-                TextButton(onClick = onToggleAdvanced) {
-                    Text(if (state.showAdvancedEditor) "Hide advanced editor" else "Advanced: edit JSON manually")
-                }
-
-                AnimatedVisibility(visible = state.showAdvancedEditor) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(
-                            value = state.editorJson,
-                            onValueChange = onJsonChanged,
-                            label = { Text("Widget JSON") },
-                            modifier = Modifier.fillMaxWidth().height(320.dp)
-                        )
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { onJsonChanged(state.editorJson) }, modifier = Modifier.weight(1f)) { Text("Validate") }
-                            Button(onClick = onSave, enabled = state.saveStatus != OperationStatus.Loading, modifier = Modifier.weight(1f)) { Text("Save") }
+                    if (state.warnings.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            state.warnings.forEach {
+                                Text("• $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            }
                         }
                     }
-                }
+
+                    TextButton(onClick = onToggleAdvanced) {
+                        Text(if (state.showAdvancedEditor) "Hide JSON editor" else "Advanced: edit JSON")
+                    }
+                    AnimatedVisibility(visible = state.showAdvancedEditor) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedTextField(
+                                value = state.editorJson,
+                                onValueChange = onJsonChanged,
+                                label = { Text("Widget JSON") },
+                                modifier = Modifier.fillMaxWidth().height(320.dp)
+                            )
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = { onJsonChanged(state.editorJson) }, modifier = Modifier.weight(1f)) { Text("Validate") }
+                                Button(onClick = onSave, enabled = state.saveStatus != OperationStatus.Loading, modifier = Modifier.weight(1f)) { Text("Save") }
+                            }
+                        }
+                    }
 
                     Spacer(Modifier.height(8.dp))
                 }
             }
-        }
 
+            // Generation overlay
             if (state.generateStatus == OperationStatus.Loading) {
                 Box(
                     modifier = Modifier
@@ -671,8 +722,8 @@ private fun EditorScreen(
                         CircularProgressIndicator()
                         Text(
                             if (state.generatorMode == com.example.aiwidgetstudio.ai.GeneratorMode.ON_DEVICE)
-                                "Running on-device model\u2026 This may take a few minutes"
-                            else "Applying changes\u2026",
+                                "Running on-device model… This may take a few minutes"
+                            else "Applying changes…",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
@@ -684,142 +735,291 @@ private fun EditorScreen(
             }
         }
     } else {
+        // ── Create mode: prompt + templates + size picker ──
         Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Text("Describe your widget", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedTextField(
-                value = state.prompt,
-                onValueChange = onPromptChanged,
-                placeholder = { Text("e.g. A water tracker that counts glasses per day with +1 and -1 buttons, resets daily at midnight") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 3
-            )
-
-            Text("Or start from a template", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                WidgetTemplateRepository.templates.forEach { template ->
-                    FilterChip(
-                        selected = false,
-                        onClick = { onTemplateSelected(template) },
-                        label = { Text("${template.emoji} ${template.name}") }
-                    )
-                }
-            }
-
-            HorizontalDivider()
-
-            Text("Widget size", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                WidgetSize.entries.forEachIndexed { index, size ->
-                    SegmentedButton(
-                        selected = state.selectedSize == size,
-                        onClick = { onSizeChanged(size) },
-                        shape = SegmentedButtonDefaults.itemShape(index = index, count = WidgetSize.entries.size),
-                        label = { Text(size.label) }
-                    )
-                }
-            }
-
-            Button(
-                onClick = onSendCreate,
-                enabled = state.generateStatus != OperationStatus.Loading,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                if (state.generateStatus == OperationStatus.Loading) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (state.generatorMode == com.example.aiwidgetstudio.ai.GeneratorMode.ON_DEVICE) "Running on-device…" else "Creating widget…")
-                } else {
-                    Text("Create with AI")
-                }
-            }
-
-            if (state.generateStatus == OperationStatus.Loading && state.generatorMode == com.example.aiwidgetstudio.ai.GeneratorMode.ON_DEVICE) {
-                TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
-            }
-
-            state.previewWidget?.let { preview ->
-                Text("Preview", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                ) {
-                    Box(modifier = Modifier.padding(12.dp)) {
-                        WidgetPreview(definition = preview.definition, state = preview.state)
-                    }
-                }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onSave, enabled = state.saveStatus != OperationStatus.Loading, modifier = Modifier.weight(1f)) {
-                        Text("Save")
-                    }
-                    Button(onClick = onPin, modifier = Modifier.weight(1f)) {
-                        Text("Add to home screen")
-                    }
-                }
-            }
-
-            if (state.warnings.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    state.warnings.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-                }
-            }
-
-            TextButton(onClick = onToggleAdvanced) {
-                Text(if (state.showAdvancedEditor) "Hide advanced editor" else "Advanced: paste JSON manually")
-            }
-
-            AnimatedVisibility(visible = state.showAdvancedEditor) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(
-                        value = state.editorJson,
-                        onValueChange = onJsonChanged,
-                        label = { Text("Widget JSON") },
-                        modifier = Modifier.fillMaxWidth().height(240.dp)
-                    )
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { onJsonChanged(state.editorJson) }, modifier = Modifier.weight(1f)) { Text("Validate") }
-                        Button(onClick = onSave, enabled = state.saveStatus != OperationStatus.Loading, modifier = Modifier.weight(1f)) { Text("Save") }
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-        }
-
-        if (state.generateStatus == OperationStatus.Loading && state.generatorMode == com.example.aiwidgetstudio.ai.GeneratorMode.ON_DEVICE) {
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)),
-                contentAlignment = Alignment.Center
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    CircularProgressIndicator()
-                    Text(
-                        "Running on-device model\u2026 This may take a few minutes",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 32.dp)
+                if (state.capabilityWarning != null) {
+                    CapabilityWarningBanner(
+                        warning = state.capabilityWarning,
+                        hint = state.capabilityHint,
+                        onDismiss = onDismissWarning,
+                        onUseSuggestion = state.capabilityHint?.let { hint ->
+                            { onPromptChanged(hint.removePrefix("Try: ").removeSuffix(" instead")) }
+                        }
                     )
-                    TextButton(onClick = onCancel) { Text("Cancel") }
+                }
+
+                Text("Describe your widget", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedTextField(
+                    value = state.prompt,
+                    onValueChange = onPromptChanged,
+                    placeholder = { Text("e.g. A water tracker that counts glasses per day with +1 and -1 buttons, resets daily at midnight") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3
+                )
+
+                WidgetSuggestions(onSelect = onPromptChanged)
+
+Text("Widget size", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    WidgetSize.entries.forEachIndexed { index, size ->
+                        SegmentedButton(
+                            selected = state.selectedSize == size,
+                            onClick = { onSizeChanged(size) },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = WidgetSize.entries.size),
+                            label = { Text(size.label) }
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = send,
+                    enabled = state.generateStatus != OperationStatus.Loading,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (state.generateStatus == OperationStatus.Loading) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (state.generatorMode == com.example.aiwidgetstudio.ai.GeneratorMode.ON_DEVICE) "Running on-device…" else "Creating widget…")
+                    } else {
+                        Text("Create with AI")
+                    }
+                }
+
+                if (state.generateStatus == OperationStatus.Loading) {
+                    TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
+                }
+
+                if (state.warnings.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        state.warnings.forEach {
+                            Text("• $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+
+                TextButton(onClick = onToggleAdvanced) {
+                    Text(if (state.showAdvancedEditor) "Hide advanced editor" else "Advanced: paste JSON manually")
+                }
+                AnimatedVisibility(visible = state.showAdvancedEditor) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedTextField(
+                            value = state.editorJson,
+                            onValueChange = onJsonChanged,
+                            label = { Text("Widget JSON") },
+                            modifier = Modifier.fillMaxWidth().height(240.dp)
+                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { onJsonChanged(state.editorJson) }, modifier = Modifier.weight(1f)) { Text("Validate") }
+                            Button(onClick = onSave, enabled = state.saveStatus != OperationStatus.Loading, modifier = Modifier.weight(1f)) { Text("Save") }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+            }
+
+            // Generation overlay for on-device
+            if (state.generateStatus == OperationStatus.Loading &&
+                state.generatorMode == com.example.aiwidgetstudio.ai.GeneratorMode.ON_DEVICE) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        CircularProgressIndicator()
+                        Text(
+                            "Running on-device model… This may take a few minutes",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 32.dp)
+                        )
+                        TextButton(onClick = onCancel) { Text("Cancel") }
+                    }
                 }
             }
         }
-        } // end Box
+    }
+}
+
+
+private data class SuggestionCategory(val label: String, val emoji: String, val prompts: List<String>)
+
+private val widgetSuggestionCategories = listOf(
+    SuggestionCategory("Productivity", "📋", listOf(
+        "Daily task checklist with 3 items and a reset button",
+        "Focus timer that counts up in minutes with +1 and reset buttons",
+        "Water intake tracker, +1 glass button, resets daily at midnight"
+    )),
+    SuggestionCategory("Live Data", "📡", listOf(
+        "Show my last 3 missed calls with caller names",
+        "Next calendar event today with minutes until it starts",
+        "My Instagram screen time today, turn red if over 60 minutes"
+    )),
+    SuggestionCategory("Health & Habits", "💪", listOf(
+        "Mood tracker — tap a number 1 to 5 to rate your day, resets daily",
+        "Cigarette counter with +1 button and daily total, resets at midnight",
+        "Coffee cup counter with +1 and -1 buttons, max 5 per day"
+    )),
+    SuggestionCategory("Fun", "🎲", listOf(
+        "Score tracker for 2 players with +1 buttons and a reset",
+        "Daily step goal progress bar with a manual +1000 steps button",
+        "Gratitude counter — tap to count things you are grateful for today"
+    ))
+)
+
+@Composable
+private fun WidgetSuggestions(onSelect: (String) -> Unit) {
+    var expanded by remember { mutableStateOf<String?>(null) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Ideas to get started", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        widgetSuggestionCategories.forEach { category ->
+            val isOpen = expanded == category.label
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { expanded = if (isOpen) null else category.label }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("${category.emoji}  ${category.label}", style = MaterialTheme.typography.bodyMedium)
+                    Icon(
+                        if (isOpen) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                AnimatedVisibility(visible = isOpen) {
+                    Column(modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        category.prompts.forEach { prompt ->
+                            SuggestionChip(
+                                onClick = { onSelect(prompt) },
+                                label = { Text(prompt, style = MaterialTheme.typography.bodySmall) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = MaterialTheme.colorScheme.surface
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
 private fun formatDate(timestamp: Long): String =
     DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(timestamp))
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun PermissionsBottomSheet(
+    permissions: List<PermissionRequest>,
+    onDismiss: () -> Unit,
+    onGrant: (runtimePerms: List<String>, specialIntents: List<android.content.Intent>) -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ) {
+        Column(
+            modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text("Permissions needed", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                "This widget uses live data that requires the following permissions:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            permissions.forEach { perm ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(perm.label, style = MaterialTheme.typography.labelLarge)
+                        Text(perm.rationale, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (perm.isSpecial) {
+                            Text("Opens Settings → grant manually", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            }
+            Button(
+                onClick = {
+                    val runtime = permissions.filter { !it.isSpecial }.map { it.permission }
+                    val special = permissions.filter { it.isSpecial }.mapNotNull { it.settingsIntent }
+                    onGrant(runtime, special)
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Grant permissions") }
+            TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                Text("Skip for now")
+            }
+        }
+    }
+}
+
+@Composable
+private fun CapabilityWarningBanner(
+    warning: String,
+    hint: String?,
+    onDismiss: () -> Unit,
+    onUseSuggestion: (() -> Unit)?
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    warning,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Dismiss",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+            if (hint != null && onUseSuggestion != null) {
+                TextButton(
+                    onClick = { onUseSuggestion(); onDismiss() },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                ) {
+                    Text(
+                        "$hint →",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+    }
+}
