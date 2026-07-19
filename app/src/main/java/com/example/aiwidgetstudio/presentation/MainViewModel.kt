@@ -51,6 +51,7 @@ data class MainUiState(
     val editorJson: String = "",
     val showAdvancedEditor: Boolean = false,
     val editingWidgetId: String? = null,
+    val originalPrompt: String = "",
     val previewWidget: RuntimeWidget? = null,
     val selectedSize: WidgetSize = WidgetSize.MEDIUM,
     val warnings: List<String> = emptyList(),
@@ -122,6 +123,7 @@ class MainViewModel @Inject constructor(
                     prompt = "",
                     editorJson = stored.widget.dslJson,
                     editingWidgetId = widgetId,
+                    originalPrompt = stored.widget.originalPrompt,
                     showAdvancedEditor = false,
                     previewWidget = preview,
                     error = null
@@ -252,7 +254,7 @@ class MainViewModel @Inject constructor(
             val state = _uiState.value
             _uiState.update { it.copy(saveStatus = OperationStatus.Loading, error = null) }
             val result = if (state.editingWidgetId == null) {
-                runtime.createWidget(state.editorJson).map { it.widgetId }
+                runtime.createWidget(state.editorJson, state.prompt).map { it.widgetId }
             } else {
                 runtime.updateWidgetDefinition(state.editingWidgetId, state.editorJson).map { state.editingWidgetId }
             }

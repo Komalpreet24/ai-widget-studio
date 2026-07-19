@@ -9,6 +9,7 @@ data class WidgetEntity (
     val widgetId: String,
     val name: String,
     val dslJson: String,
+    val originalPrompt: String,
     val createdAt: Long,
     val updatedAt: Long
 )

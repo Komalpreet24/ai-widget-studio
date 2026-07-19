@@ -11,7 +11,7 @@ import com.example.aiwidgetstudio.data.local.entity.WidgetStateEntity
 
 @Database(
     entities = [WidgetEntity::class, WidgetStateEntity::class, WidgetInstanceEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class WidgetDatabase : RoomDatabase() {
@@ -39,6 +39,13 @@ abstract class WidgetDatabase : RoomDatabase() {
                 )
                 database.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_WidgetInstanceEntity_widgetId ON WidgetInstanceEntity(widgetId)"
+                )
+            }
+        }
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE WidgetEntity ADD COLUMN originalPrompt TEXT NOT NULL DEFAULT ''"
                 )
             }
         }

@@ -46,7 +46,7 @@ class WidgetRuntime @Inject constructor(
         return processor.process(dslJson)
     }
 
-    suspend fun createWidget(dslJson: String): Result<CreatedWidget> {
+    suspend fun createWidget(dslJson: String, originalPrompt: String = ""): Result<CreatedWidget> {
         val processResult = processor.process(dslJson)
         val processed = processResult.getOrNull()
         if (processed == null) {
@@ -60,6 +60,7 @@ class WidgetRuntime @Inject constructor(
             widgetId = widgetId,
             name = processed.definition.metadata.name,
             dslJson = dslJson,
+            originalPrompt = originalPrompt,
             createdAt = timestamp,
             updatedAt = timestamp
         )
