@@ -4,7 +4,8 @@ data class WidgetDefinition(
     val metadata: WidgetMetadata,
     val data: WidgetData,
     val actions: List<WidgetAction>,
-    val ui: UiNode
+    val ui: UiNode,
+    val conditions: List<RenderCondition> = emptyList()
 )
 
 enum class WidgetSize(val label: String, val widthDp: Int, val heightDp: Int) {

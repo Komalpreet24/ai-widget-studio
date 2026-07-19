@@ -9,7 +9,8 @@ data class DslWidgetDto(
     val metadata: DslMetadataDto? = null,
     val data: DslDataDto? = null,
     val actions: List<JsonElement> = emptyList(),
-    val ui: JsonElement? = null
+    val ui: JsonElement? = null,
+    val conditions: List<JsonElement>? = null
 )
 
 @Serializable

@@ -235,6 +235,17 @@ class WidgetRuntime @Inject constructor(
         }
     }
 
+    suspend fun setState(widgetId: String, newState: WidgetState) {
+        stateMutex.withLock {
+            try {
+                val stored = repository.getWidgetWithState(widgetId) ?: return@withLock
+                val newStateJson = stateCodec.encode(newState)
+                repository.updateState(stored.state.copy(stateJson = newStateJson))
+                glanceStateUpdater.pushState(widgetId, newStateJson)
+            } catch (_: Exception) { }
+        }
+    }
+
     suspend fun deleteWidget(widgetId: String): Boolean {
         return stateMutex.withLock {
             repository.deleteWidget(widgetId)

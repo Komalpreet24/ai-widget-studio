@@ -1,5 +1,9 @@
 package com.example.aiwidgetstudio.engine.parser.mapper
 
+import com.example.aiwidgetstudio.domain.model.ConditionOperator
+import com.example.aiwidgetstudio.domain.model.ConditionalStyle
+import com.example.aiwidgetstudio.domain.model.DataSource
+import com.example.aiwidgetstudio.domain.model.RenderCondition
 import com.example.aiwidgetstudio.domain.model.UiNode
 import com.example.aiwidgetstudio.domain.model.UiNodeMargin
 import com.example.aiwidgetstudio.domain.model.UiNodeStyle
@@ -32,7 +36,8 @@ class WidgetDslMapper @Inject constructor() {
         mapMetadata(widget.metadata),
         mapData(widget.data),
         mapActions(widget.actions),
-        mapUiNode(widget.ui)
+        mapUiNode(widget.ui),
+        mapConditions(widget.conditions)
     )
 
     private fun mapMetadata(metadata: DslMetadataDto?): WidgetMetadata {
@@ -90,29 +95,34 @@ class WidgetDslMapper @Inject constructor() {
                 name,
                 obj.toIntOrNull("default") ?: 0,
                 obj.toIntOrNull("min"),
-                obj.toIntOrNull("max")
+                obj.toIntOrNull("max"),
+                mapSource(obj["source"], obj)
             )
 
             "BOOL", "BOOLEAN" -> VariableDefinition.BooleanVariable(
                 name,
-                obj.toBooleanOrNull("default") ?: false
+                obj.toBooleanOrNull("default") ?: false,
+                mapSource(obj["source"], obj)
             )
 
             "STR", "STRING" -> VariableDefinition.StringVariable(
                 name,
-                obj.toStringOrNull("default") ?: ""
+                obj.toStringOrNull("default") ?: "",
+                mapSource(obj["source"], obj)
             )
 
             "DOUBLE" -> VariableDefinition.DoubleVariable(
                 name,
                 obj.toDoubleOrNull("default") ?: 0.0,
                 obj.toDoubleOrNull("min"),
-                obj.toDoubleOrNull("max")
+                obj.toDoubleOrNull("max"),
+                mapSource(obj["source"], obj)
             )
 
             else -> VariableDefinition.StringVariable(
                 name,
-                obj.toStringOrNull("default") ?: ""
+                obj.toStringOrNull("default") ?: "",
+                mapSource(obj["source"], obj)
             )
         }
     }
@@ -162,6 +172,56 @@ class WidgetDslMapper @Inject constructor() {
 
             else -> null
         }
+    }
+
+    private fun mapSource(sourceElement: JsonElement?, parentObj: JsonObject): DataSource? {
+        val obj = sourceElement as? JsonObject ?: parentObj
+        val type = (sourceElement as? JsonPrimitive)?.contentOrNull?.uppercase()
+            ?: (sourceElement as? JsonObject)?.toStringOrNull("type")?.uppercase()
+            ?: return null
+        return when (type) {
+            "USAGE_STATS" -> DataSource.UsageStats(
+                packageName = obj.toStringOrNull("package") ?: return null,
+                windowMinutes = obj.toIntOrNull("windowMinutes") ?: 1440
+            )
+            "CALL_LOG" -> DataSource.CallLog(
+                filter = if (obj.toStringOrNull("filter")?.uppercase() == "ALL")
+                    DataSource.CallFilter.ALL else DataSource.CallFilter.MISSED,
+                windowMinutes = obj.toIntOrNull("windowMinutes") ?: 60
+            )
+            "CALENDAR" -> DataSource.Calendar(
+                lookaheadMinutes = obj.toIntOrNull("lookaheadMinutes") ?: 1440
+            )
+            "HEALTH_STEPS" -> DataSource.HealthSteps
+            else -> null
+        }
+    }
+
+    private fun mapConditions(conditions: List<JsonElement>?): List<RenderCondition> =
+        conditions?.mapNotNull { mapCondition(it) } ?: emptyList()
+
+    private fun mapCondition(element: JsonElement): RenderCondition? {
+        val obj = element.asObjectOrNull() ?: return null
+        val variable = obj.toStringOrNull("variable") ?: return null
+        val operator = when (obj.toStringOrNull("operator")?.uppercase()) {
+            "GT", ">" -> ConditionOperator.GT
+            "GTE", ">=" -> ConditionOperator.GTE
+            "LT", "<" -> ConditionOperator.LT
+            "LTE", "<=" -> ConditionOperator.LTE
+            "EQ", "==", "=" -> ConditionOperator.EQ
+            else -> return null
+        }
+        val value = obj.toDoubleOrNull("value") ?: return null
+        val styleObj = obj["style"]?.asObjectOrNull()
+        return RenderCondition(
+            variable = variable,
+            operator = operator,
+            value = value,
+            styleOverride = ConditionalStyle(
+                backgroundColor = styleObj?.toStringOrNull("backgroundColor"),
+                textColor = styleObj?.toStringOrNull("textColor")
+            )
+        )
     }
 
     fun mapUiNode(ui: JsonElement?): UiNode {
