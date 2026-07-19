@@ -13,6 +13,8 @@ import com.example.aiwidgetstudio.ai.ModelManager
 import com.example.aiwidgetstudio.data.local.dao.WidgetListEntry
 import com.example.aiwidgetstudio.data.repository.WidgetRepository
 import com.example.aiwidgetstudio.domain.model.WidgetSize
+import com.example.aiwidgetstudio.domain.model.WidgetTemplate
+import com.example.aiwidgetstudio.domain.model.WidgetTemplateRepository
 import com.example.aiwidgetstudio.engine.runtime.RuntimeWidget
 import com.example.aiwidgetstudio.engine.runtime.WidgetRuntime
 import com.example.aiwidgetstudio.engine.state.WidgetStateCodec
@@ -133,6 +135,26 @@ class MainViewModel @Inject constructor(
             validateDsl()
         }
     }
+
+    fun loadTemplate(template: WidgetTemplate) {
+        val processed = runtime.processDsl(template.dslJson).getOrNull() ?: return
+        val state = stateEngine.createInitialState(processed.definition)
+        _uiState.update {
+            it.copy(
+                screen = AppScreen.EDITOR,
+                prompt = "",
+                editorJson = template.dslJson,
+                editingWidgetId = null,
+                originalPrompt = "",
+                showAdvancedEditor = false,
+                previewWidget = RuntimeWidget(processed.definition, state),
+                error = null
+            )
+        }
+        savedStateHandle[KEY_EDITOR_JSON] = template.dslJson
+    }
+
+    fun getTemplates(): List<WidgetTemplate> = WidgetTemplateRepository.templates
 
     fun setWidgetSize(size: WidgetSize) {
         _uiState.update { it.copy(selectedSize = size) }
