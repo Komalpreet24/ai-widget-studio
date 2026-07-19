@@ -40,7 +40,8 @@ class CallLogResolver @Inject constructor(
         }
     }
 
-    fun resolveLatestCaller(source: DataSource.CallLog): VariableValue.StringValue {
+    /** Returns the caller name/number at the given 0-based index (most recent = 0). */
+    fun resolveCallerAtIndex(source: DataSource.CallLog, index: Int = 0): VariableValue.StringValue {
         if (!hasPermission()) return VariableValue.StringValue("")
         return try {
             val since = System.currentTimeMillis() - source.windowMinutes * 60_000L
@@ -58,7 +59,7 @@ class CallLogResolver @Inject constructor(
                 "${CallLog.Calls.DATE} DESC"
             )
             val name = cursor?.use {
-                if (it.moveToFirst()) {
+                if (it.move(index + 1)) {
                     it.getString(0)?.takeIf { n -> n.isNotBlank() } ?: it.getString(1) ?: ""
                 } else ""
             } ?: ""

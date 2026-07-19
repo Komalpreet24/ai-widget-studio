@@ -4,16 +4,13 @@ import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import com.example.aiwidgetstudio.data.datasource.CalendarResolver
-import com.example.aiwidgetstudio.data.datasource.CallLogResolver
-import com.example.aiwidgetstudio.data.datasource.UsageStatsResolver
+import com.example.aiwidgetstudio.data.datasource.DataSourceResolver
 import com.example.aiwidgetstudio.data.repository.WidgetRepository
-import com.example.aiwidgetstudio.domain.model.DataSource
 import com.example.aiwidgetstudio.domain.model.UpdatePolicy
-import com.example.aiwidgetstudio.domain.model.VariableValue
 import com.example.aiwidgetstudio.engine.WidgetDslProcessor
 import com.example.aiwidgetstudio.engine.runtime.WidgetRuntime
 import com.example.aiwidgetstudio.engine.state.WidgetStateCodec
@@ -29,9 +26,7 @@ class WidgetDataRefreshWorker @AssistedInject constructor(
     private val processor: WidgetDslProcessor,
     private val runtime: WidgetRuntime,
     private val stateCodec: WidgetStateCodec,
-    private val usageStatsResolver: UsageStatsResolver,
-    private val callLogResolver: CallLogResolver,
-    private val calendarResolver: CalendarResolver
+    private val dataSourceResolver: DataSourceResolver
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -52,31 +47,7 @@ class WidgetDataRefreshWorker @AssistedInject constructor(
                 if (sourcedVariables.isEmpty()) return@runCatching
 
                 val currentState = stateCodec.decode(stored.state.stateJson, definition)
-                val updates = mutableMapOf<String, VariableValue>()
-
-                sourcedVariables.forEach { variable ->
-                    when (val source = variable.source) {
-                        is DataSource.UsageStats ->
-                            updates[variable.name] = usageStatsResolver.resolve(source)
-                        is DataSource.CallLog -> {
-                            // name ending in "_count" or "_caller" determines which value
-                            if (variable.name.endsWith("_caller") || variable.name.endsWith("_name")) {
-                                updates[variable.name] = callLogResolver.resolveLatestCaller(source)
-                            } else {
-                                updates[variable.name] = callLogResolver.resolveCount(source)
-                            }
-                        }
-                        is DataSource.Calendar -> {
-                            if (variable.name.endsWith("_minutes") || variable.name.endsWith("_countdown")) {
-                                updates[variable.name] = calendarResolver.resolveMinutesUntilNext(source)
-                            } else {
-                                updates[variable.name] = calendarResolver.resolveNextEventTitle(source)
-                            }
-                        }
-                        DataSource.HealthSteps -> { /* Health Connect — Phase 5 */ }
-                        null -> Unit
-                    }
-                }
+                val updates = dataSourceResolver.resolveAll(definition.data.variables)
 
                 if (updates.isNotEmpty()) {
                     val newState = currentState.copy(values = currentState.values + updates)
@@ -98,5 +69,9 @@ object RefreshWorkScheduler {
             ExistingPeriodicWorkPolicy.KEEP,
             request
         )
+    }
+
+    fun runNow(context: Context) {
+        WorkManager.getInstance(context).enqueue(OneTimeWorkRequestBuilder<WidgetDataRefreshWorker>().build())
     }
 }

@@ -16,20 +16,22 @@ class CalendarResolver @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     fun resolveNextEventTitle(source: DataSource.Calendar): VariableValue.StringValue {
-        if (!hasPermission()) return VariableValue.StringValue("No permission")
+        if (!hasPermission()) return VariableValue.StringValue("")
         return try {
             val now = System.currentTimeMillis()
             val end = now + source.lookaheadMinutes * 60_000L
+            val uri = android.net.Uri.withAppendedPath(
+                CalendarContract.Instances.CONTENT_URI, "$now/$end"
+            )
             val cursor = context.contentResolver.query(
-                CalendarContract.Events.CONTENT_URI,
-                arrayOf(CalendarContract.Events.TITLE, CalendarContract.Events.DTSTART),
-                "${CalendarContract.Events.DTSTART} >= ? AND ${CalendarContract.Events.DTSTART} <= ? AND ${CalendarContract.Events.DELETED} = 0",
-                arrayOf(now.toString(), end.toString()),
-                "${CalendarContract.Events.DTSTART} ASC"
+                uri,
+                arrayOf(CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN),
+                null, null,
+                "${CalendarContract.Instances.BEGIN} ASC"
             )
             val title = cursor?.use {
                 if (it.moveToFirst()) it.getString(0)?.takeIf { t -> t.isNotBlank() } else null
-            } ?: "No upcoming events"
+            } ?: ""
             VariableValue.StringValue(title)
         } catch (_: Exception) {
             VariableValue.StringValue("")
@@ -37,24 +39,26 @@ class CalendarResolver @Inject constructor(
     }
 
     fun resolveMinutesUntilNext(source: DataSource.Calendar): VariableValue.IntValue {
-        if (!hasPermission()) return VariableValue.IntValue(-1)
+        if (!hasPermission()) return VariableValue.IntValue(0)
         return try {
             val now = System.currentTimeMillis()
             val end = now + source.lookaheadMinutes * 60_000L
-            val cursor = context.contentResolver.query(
-                CalendarContract.Events.CONTENT_URI,
-                arrayOf(CalendarContract.Events.DTSTART),
-                "${CalendarContract.Events.DTSTART} >= ? AND ${CalendarContract.Events.DTSTART} <= ? AND ${CalendarContract.Events.DELETED} = 0",
-                arrayOf(now.toString(), end.toString()),
-                "${CalendarContract.Events.DTSTART} ASC"
+            val uri = android.net.Uri.withAppendedPath(
+                CalendarContract.Instances.CONTENT_URI, "$now/$end"
             )
-            val dtStart = cursor?.use {
-                if (it.moveToFirst()) it.getLong(0) else -1L
-            } ?: -1L
-            val minutes = if (dtStart > 0) ((dtStart - now) / 60_000L).toInt() else -1
+            val cursor = context.contentResolver.query(
+                uri,
+                arrayOf(CalendarContract.Instances.BEGIN),
+                null, null,
+                "${CalendarContract.Instances.BEGIN} ASC"
+            )
+            val begin = cursor?.use {
+                if (it.moveToFirst()) it.getLong(0) else 0L
+            } ?: 0L
+            val minutes = if (begin > 0) ((begin - now) / 60_000L).toInt().coerceAtLeast(0) else 0
             VariableValue.IntValue(minutes)
         } catch (_: Exception) {
-            VariableValue.IntValue(-1)
+            VariableValue.IntValue(0)
         }
     }
 

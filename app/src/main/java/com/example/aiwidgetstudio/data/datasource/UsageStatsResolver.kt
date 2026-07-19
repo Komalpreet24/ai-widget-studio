@@ -30,10 +30,13 @@ class UsageStatsResolver @Inject constructor(
     }
 
     fun hasPermission(): Boolean = try {
-        val manager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-        val now = System.currentTimeMillis()
-        val stats = manager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - 60_000, now)
-        stats != null
+        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+        val mode = appOps.checkOpNoThrow(
+            android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+            android.os.Process.myUid(),
+            context.packageName
+        )
+        mode == android.app.AppOpsManager.MODE_ALLOWED
     } catch (_: Exception) {
         false
     }
