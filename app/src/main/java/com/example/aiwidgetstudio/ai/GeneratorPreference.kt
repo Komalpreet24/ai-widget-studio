@@ -7,6 +7,8 @@ import javax.inject.Singleton
 
 enum class GeneratorMode { GEMINI, ON_DEVICE }
 
+enum class WidgetTheme { SYSTEM, LIGHT, DARK }
+
 @Singleton
 class GeneratorPreference @Inject constructor(
     @ApplicationContext private val context: Context
@@ -21,8 +23,13 @@ class GeneratorPreference @Inject constructor(
         get() = prefs.getString(KEY_GEMINI_API_KEY, "") ?: ""
         set(value) = prefs.edit().putString(KEY_GEMINI_API_KEY, value).apply()
 
+    var widgetTheme: WidgetTheme
+        get() = WidgetTheme.valueOf(prefs.getString(KEY_WIDGET_THEME, WidgetTheme.SYSTEM.name)!!)
+        set(value) = prefs.edit().putString(KEY_WIDGET_THEME, value.name).apply()
+
     companion object {
         private const val KEY_MODE = "mode"
         private const val KEY_GEMINI_API_KEY = "gemini_api_key"
+        private const val KEY_WIDGET_THEME = "widget_theme"
     }
 }

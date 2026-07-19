@@ -9,6 +9,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.GlanceTheme
 import androidx.glance.LocalContext
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
@@ -17,6 +18,7 @@ import androidx.glance.appwidget.LinearProgressIndicator
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.action.actionStartActivity
+import androidx.glance.appwidget.cornerRadius
 import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
@@ -33,6 +35,7 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.example.aiwidgetstudio.MainActivity
+import com.example.aiwidgetstudio.ai.WidgetTheme
 import com.example.aiwidgetstudio.di.WidgetRuntimeEntryPoint
 import com.example.aiwidgetstudio.domain.model.UiNode
 import com.example.aiwidgetstudio.domain.model.UiNodeMargin
@@ -40,6 +43,7 @@ import com.example.aiwidgetstudio.domain.model.UiNodeStyle
 import com.example.aiwidgetstudio.domain.model.WidgetAction
 import com.example.aiwidgetstudio.domain.model.WidgetAlignment
 import com.example.aiwidgetstudio.domain.model.WidgetDefinition
+import com.example.aiwidgetstudio.engine.ConditionEvaluator
 import com.example.aiwidgetstudio.engine.state.WidgetState
 import dagger.hilt.android.EntryPointAccessors
 
@@ -59,15 +63,32 @@ object WidgetGlanceContent {
         definition: WidgetDefinition,
         state: WidgetState
     ) {
-        Column(
-            modifier = GlanceModifier
-                .fillMaxSize()
-                .background(Color(0xFFFAFAFA))
-                .padding(12.dp),
-            verticalAlignment = Alignment.Vertical.Top,
-            horizontalAlignment = Alignment.Horizontal.Start
-        ) {
-            RenderNode(context, widgetId, definition, state, definition.ui, depth = 1, nodesVisited = 0)
+        val prefs = EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            WidgetRuntimeEntryPoint::class.java
+        ).generatorPreference()
+        val isDark = when (prefs.widgetTheme) {
+            WidgetTheme.LIGHT -> false
+            WidgetTheme.DARK -> true
+            WidgetTheme.SYSTEM -> (context.resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+        }
+        val conditionOverride = ConditionEvaluator().evaluate(definition.conditions, state)
+        val bgColor = conditionOverride?.backgroundColor?.let { parseColor(it) }
+            ?: if (isDark) Color(0xFF1C1C1E) else Color(0xFFFAFAFA)
+        val defaultBtnBg = if (isDark) Color(0xFF0A84FF) else Color(0xFF1976D2)
+        GlanceTheme {
+            Column(
+                modifier = GlanceModifier
+                    .fillMaxSize()
+                    .background(bgColor)
+                    .padding(12.dp),
+                verticalAlignment = Alignment.Vertical.Top,
+                horizontalAlignment = Alignment.Horizontal.Start
+            ) {
+                RenderNode(context, widgetId, definition, state, definition.ui, depth = 1, nodesVisited = 0, defaultBtnBg = defaultBtnBg, conditionOverride = conditionOverride)
+            }
         }
     }
 
@@ -114,7 +135,9 @@ object WidgetGlanceContent {
         state: WidgetState,
         node: UiNode,
         depth: Int,
-        nodesVisited: Int
+        nodesVisited: Int,
+        defaultBtnBg: Color = Color(0xFF1976D2),
+        conditionOverride: com.example.aiwidgetstudio.domain.model.ConditionalStyle? = null
     ) {
         if (nodesVisited >= MAX_UI_NODES || depth > MAX_UI_DEPTH) return
 
@@ -130,7 +153,7 @@ object WidgetGlanceContent {
                     var visited = nodesVisited + 1
                     node.children.take(MAX_UI_CHILDREN).forEach { child ->
                         if (visited >= MAX_UI_NODES) return@forEach
-                        RenderNode(context, widgetId, definition, state, child, depth + 1, visited)
+                        RenderNode(context, widgetId, definition, state, child, depth + 1, visited, defaultBtnBg, conditionOverride)
                         visited++
                     }
                 }
@@ -145,7 +168,7 @@ object WidgetGlanceContent {
                     var visited = nodesVisited + 1
                     node.children.take(MAX_UI_CHILDREN).forEach { child ->
                         if (visited >= MAX_UI_NODES) return@forEach
-                        RenderNode(context, widgetId, definition, state, child, depth + 1, visited)
+                        RenderNode(context, widgetId, definition, state, child, depth + 1, visited, defaultBtnBg, conditionOverride)
                         visited++
                     }
                 }
@@ -156,23 +179,31 @@ object WidgetGlanceContent {
                     modifier = modifier.fillMaxWidth(),
                     contentAlignment = mapBoxAlignment(node.style.alignment)
                 ) {
-                    RenderNode(context, widgetId, definition, state, node.child, depth + 1, nodesVisited + 1)
+                    RenderNode(context, widgetId, definition, state, node.child, depth + 1, nodesVisited + 1, defaultBtnBg, conditionOverride)
                 }
             }
 
             is UiNode.Card -> {
+                val cardPadding = node.style.padding?.let { marginToPadding(it) } ?: GlanceModifier
+                val cardRadius = clampDp(node.style.cornerRadius, 0, 64)
+                // condition override takes priority over AI-generated card background
+                val cardBg = conditionOverride?.backgroundColor?.let { parseColor(it) }
+                    ?: parseColor(node.style.backgroundColor)
+                    ?: Color(0xFFECEFF1)
                 Box(
                     modifier = modifier
                         .fillMaxWidth()
-                        .background(parseColor(node.style.backgroundColor) ?: Color(0xFFECEFF1))
-                        .padding(clampDp(node.style.cornerRadius, 0, 64).dp)
+                        .background(cardBg)
+                        .cornerRadius(cardRadius.dp)
+                        .then(cardPadding)
                 ) {
-                    RenderNode(context, widgetId, definition, state, node.child, depth + 1, nodesVisited + 1)
+                    RenderNode(context, widgetId, definition, state, node.child, depth + 1, nodesVisited + 1, defaultBtnBg, conditionOverride)
                 }
             }
 
             is UiNode.Text -> {
-                val textColor = parseColor(node.style.textColor)
+                val textColor = conditionOverride?.textColor?.let { parseColor(it) }
+                    ?: parseColor(node.style.textColor)
                 Text(
                     text = BindingResolver.resolveText(node.value, state),
                     modifier = modifier,
@@ -208,11 +239,13 @@ object WidgetGlanceContent {
                         )
                     )
                 }
-                val btnBg = parseColor(node.style.backgroundColor) ?: Color(0xFF1976D2)
+                val btnBg = parseColor(node.style.backgroundColor) ?: defaultBtnBg
                 val btnTextColor = parseColor(node.style.textColor) ?: Color.White
+                val radius = clampDp(node.style.cornerRadius ?: 50, 0, 64)
                 Box(
                     modifier = clickModifier
                         .background(btnBg)
+                        .cornerRadius(radius.dp)
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -273,13 +306,19 @@ object WidgetGlanceContent {
         }
     )
 
-    private fun openUrlAction(url: String) = actionStartActivity(
-        Intent(Intent.ACTION_VIEW, Uri.parse(url))
-    )
+    private fun openUrlAction(url: String): androidx.glance.action.Action {
+        val normalized = if (!url.startsWith("http://") && !url.startsWith("https://")) "https://$url" else url
+        return actionStartActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse(normalized)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+        )
+    }
 
     private fun isValidUrl(url: String): Boolean {
-        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return false
-        return uri.scheme in setOf("http", "https")
+        val normalized = if (!url.startsWith("http://") && !url.startsWith("https://")) "https://$url" else url
+        val uri = runCatching { Uri.parse(normalized) }.getOrNull() ?: return false
+        return uri.scheme in setOf("http", "https") && uri.host?.isNotBlank() == true
     }
 
     private fun buildStyleModifier(style: UiNodeStyle): GlanceModifier {

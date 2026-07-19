@@ -44,6 +44,7 @@ class WidgetGlanceAppWidget : GlanceAppWidget() {
 
         val manager = GlanceAppWidgetManager(context)
         val appWidgetId = manager.getAppWidgetId(id)
+        val dataSourceResolver = entryPoint.dataSourceResolver()
 
         provideContent {
             val widgetId by repository.observeWidgetId(appWidgetId).collectAsState(initial = null)
@@ -70,14 +71,22 @@ class WidgetGlanceAppWidget : GlanceAppWidget() {
                     value = WidgetLoadResult.Fallback(wid)
                     return@produceState
                 }
+
+                // Resolve data sources immediately so first render has fresh data
+                val updates = dataSourceResolver.resolveAll(definition.data.variables)
+                val freshState = if (updates.isNotEmpty()) {
+                    val merged = initial.state.copy(values = initial.state.values + updates)
+                    runtime.setState(wid, merged)
+                    merged
+                } else initial.state
                 updateAppWidgetState(context, WidgetGlanceStateDefinition, id) {
                     it.copy(
                         widgetId = wid,
-                        stateJson = stateCodec.encode(initial.state),
+                        stateJson = stateCodec.encode(freshState),
                         widgetSizeKey = definition.metadata.size.name
                     )
                 }
-                value = WidgetLoadResult.Ready(wid, definition, initial.state)
+                value = WidgetLoadResult.Ready(wid, definition, freshState)
             }
 
             when (val r = result) {
