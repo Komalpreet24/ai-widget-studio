@@ -31,6 +31,20 @@ class GeminiWidgetGenerator @Inject constructor(
         context.assets.open("prompt_online.md").bufferedReader().readText()
     }
 
+    // Cached once — label=package for all user-installed launchable apps
+    private val installedAppsHint: String by lazy {
+        val pm = context.packageManager
+        val intent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
+            addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+        }
+        val apps = pm.queryIntentActivities(intent, 0)
+            .map { it.activityInfo.packageName to (it.loadLabel(pm).toString()) }
+            .distinctBy { it.first }
+            .sortedBy { it.second }
+            .joinToString("\n") { (pkg, label) -> "$label=$pkg" }
+        "\n\nInstalled apps on this device (use exact package names from this list for USAGE_STATS source):\n$apps"
+    }
+
     override fun generate(prompt: String, existingDsl: String?): Flow<GenerationProgress> = flow {
         emit(GenerationProgress(status = OperationStatus.Loading))
         try {
@@ -46,10 +60,16 @@ class GeminiWidgetGenerator @Inject constructor(
                 systemInstruction = content { text(systemPrompt) },
                 requestOptions = RequestOptions(apiVersion = "v1beta")
             )
+            val themeHint = when (generatorPreference.widgetTheme) {
+                WidgetTheme.LIGHT -> "\n\nTheme: LIGHT. Use backgroundColor=#FFFFFF, textColor=#1A1A1A for all nodes. Do not use dark colors."
+                WidgetTheme.DARK -> "\n\nTheme: DARK. Use backgroundColor=#1C1C1E, textColor=#FFFFFF for all nodes. Do not use light colors."
+                WidgetTheme.SYSTEM -> "\n\nTheme: SYSTEM (follows device). Do NOT hardcode backgroundColor or textColor on any node unless the user explicitly asked for a specific color. Leave them null so the app applies the correct theme colors automatically."
+            }
+            val appPackageHint = installedAppsHint
             val userMessage = if (existingDsl != null) {
-                "Modify this existing widget DSL:\n$existingDsl\n\nChanges requested: $prompt"
+                "Modify this existing widget DSL:\n$existingDsl\n\nChanges requested: $prompt$themeHint$appPackageHint"
             } else {
-                "Create a widget for: $prompt"
+                "Create a widget for: $prompt$themeHint$appPackageHint"
             }
             val builder = StringBuilder()
             model.generateContentStream(content { text(userMessage) })

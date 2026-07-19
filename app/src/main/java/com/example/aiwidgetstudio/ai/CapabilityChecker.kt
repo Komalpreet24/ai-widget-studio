@@ -20,12 +20,12 @@ class CapabilityChecker @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     // Keywords that indicate features the DSL engine cannot support
+    // Note: call log, calendar, sms-count are supported via data sources — not blocked
     private val blocklist = listOf(
         "camera", "photo", "video", "microphone", "audio", "record",
         "gps", "location", "map", "navigation",
         "bluetooth", "wifi", "nfc",
-        "notification", "alarm", "reminder", "calendar",
-        "contact", "call", "sms", "message",
+        "notification", "alarm", "reminder",
         "payment", "purchase", "buy",
         "login", "sign in", "authenticate",
         "download", "upload", "file manager",
@@ -81,7 +81,7 @@ class CapabilityChecker @Inject constructor(
         hit.contains("camera") || hit.contains("photo") -> "Try: a photo counter or daily log instead"
         hit.contains("location") || hit.contains("gps") || hit.contains("map") -> "Try: a manual location note widget instead"
         hit.contains("notification") || hit.contains("alarm") || hit.contains("reminder") -> "Try: a countdown timer or task checklist instead"
-        hit.contains("contact") || hit.contains("call") || hit.contains("sms") -> "Try: a quick-dial button that opens the app instead"
+        hit.contains("contact") -> "Try: a quick-dial button that opens the app instead"
         hit.contains("payment") || hit.contains("purchase") -> "Try: a spending tracker with manual +/- buttons instead"
         else -> "Try: a simple counter or text display widget instead"
     }
