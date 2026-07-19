@@ -1,24 +1,29 @@
 package com.example.aiwidgetstudio.presentation
 
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.aiwidgetstudio.ai.AiOutputExtractor
+import com.example.aiwidgetstudio.ai.CapabilityChecker
 import com.example.aiwidgetstudio.ai.GeminiWidgetGenerator
+import com.example.aiwidgetstudio.data.PermissionManager
+import com.example.aiwidgetstudio.data.PermissionRequest
+import com.example.aiwidgetstudio.data.datasource.DataSourceResolver
 import com.example.aiwidgetstudio.ai.GeneratorMode
 import com.example.aiwidgetstudio.ai.GeneratorPreference
+import com.example.aiwidgetstudio.ai.WidgetTheme
 import com.example.aiwidgetstudio.ai.LocalWidgetDslGenerator
 import com.example.aiwidgetstudio.ai.ModelManager
 import com.example.aiwidgetstudio.data.local.dao.WidgetListEntry
 import com.example.aiwidgetstudio.data.repository.WidgetRepository
 import com.example.aiwidgetstudio.domain.model.WidgetSize
-import com.example.aiwidgetstudio.domain.model.WidgetTemplate
-import com.example.aiwidgetstudio.domain.model.WidgetTemplateRepository
 import com.example.aiwidgetstudio.engine.runtime.RuntimeWidget
 import com.example.aiwidgetstudio.engine.runtime.WidgetRuntime
 import com.example.aiwidgetstudio.engine.state.WidgetStateCodec
 import com.example.aiwidgetstudio.engine.state.WidgetStateEngine
+import com.example.aiwidgetstudio.worker.RefreshWorkScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -61,19 +66,27 @@ data class MainUiState(
     val saveStatus: OperationStatus = OperationStatus.Idle,
     val generateStatus: OperationStatus = OperationStatus.Idle,
     val generatorMode: GeneratorMode = GeneratorMode.GEMINI,
+    val widgetTheme: WidgetTheme = WidgetTheme.SYSTEM,
     val geminiApiKey: String = "",
+    val capabilityWarning: String? = null,
+    val capabilityHint: String? = null,
+    val missingPermissions: List<PermissionRequest> = emptyList(),
     val modelSettings: ModelSettingsState = ModelSettingsState(),
     val error: String? = null
 )
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context,
     private val runtime: WidgetRuntime,
     private val repository: WidgetRepository,
     private val geminiGenerator: GeminiWidgetGenerator,
     private val localGenerator: LocalWidgetDslGenerator,
     private val modelManager: ModelManager,
     private val generatorPreference: GeneratorPreference,
+    private val capabilityChecker: CapabilityChecker,
+    private val permissionManager: PermissionManager,
+    private val dataSourceResolver: DataSourceResolver,
     private val stateEngine: WidgetStateEngine,
     private val stateCodec: WidgetStateCodec,
     private val savedStateHandle: SavedStateHandle
@@ -90,6 +103,7 @@ class MainViewModel @Inject constructor(
             prompt = savedStateHandle.get<String>(KEY_PROMPT).orEmpty(),
             editorJson = savedStateHandle.get<String>(KEY_EDITOR_JSON).orEmpty(),
             generatorMode = generatorPreference.mode,
+            widgetTheme = generatorPreference.widgetTheme,
             geminiApiKey = generatorPreference.geminiApiKey
         )
     )
@@ -136,27 +150,7 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    fun loadTemplate(template: WidgetTemplate) {
-        val processed = runtime.processDsl(template.dslJson).getOrNull() ?: return
-        val state = stateEngine.createInitialState(processed.definition)
-        _uiState.update {
-            it.copy(
-                screen = AppScreen.EDITOR,
-                prompt = "",
-                editorJson = template.dslJson,
-                editingWidgetId = null,
-                originalPrompt = "",
-                showAdvancedEditor = false,
-                previewWidget = RuntimeWidget(processed.definition, state),
-                error = null
-            )
-        }
-        savedStateHandle[KEY_EDITOR_JSON] = template.dslJson
-    }
-
-    fun getTemplates(): List<WidgetTemplate> = WidgetTemplateRepository.templates
-
-    fun setWidgetSize(size: WidgetSize) {
+fun setWidgetSize(size: WidgetSize) {
         _uiState.update { it.copy(selectedSize = size) }
     }
 
@@ -186,6 +180,11 @@ class MainViewModel @Inject constructor(
     fun setGeneratorMode(mode: GeneratorMode) {
         generatorPreference.mode = mode
         _uiState.update { it.copy(generatorMode = mode) }
+    }
+
+    fun setWidgetTheme(theme: WidgetTheme) {
+        generatorPreference.widgetTheme = theme
+        _uiState.update { it.copy(widgetTheme = theme) }
     }
 
     fun validateDsl() {
@@ -219,6 +218,15 @@ class MainViewModel @Inject constructor(
         _uiState.update { it.copy(generateStatus = OperationStatus.Idle) }
     }
 
+    fun dismissCapabilityWarning() {
+        _uiState.update { it.copy(capabilityWarning = null, capabilityHint = null) }
+    }
+
+    fun dismissPermissionRequest() {
+        _uiState.update { it.copy(missingPermissions = emptyList()) }
+        RefreshWorkScheduler.runNow(context)
+    }
+
     fun generateDsl() {
         if (_uiState.value.generateStatus == OperationStatus.Loading) return
         val prompt = _uiState.value.prompt.trim()
@@ -234,6 +242,32 @@ class MainViewModel @Inject constructor(
 
         generateJob?.cancel()
         generateJob = viewModelScope.launch {
+            // On-device check first (instant)
+            val onDeviceResult = capabilityChecker.checkOnDevice(prompt)
+            if (!onDeviceResult.feasible) {
+                _uiState.update {
+                    it.copy(
+                        capabilityWarning = onDeviceResult.warning,
+                        capabilityHint = onDeviceResult.suggestion,
+                        generateStatus = OperationStatus.Idle
+                    )
+                }
+                return@launch
+            }
+            // Gemini mode: async feasibility check (non-blocking — runs alongside generation)
+            if (_uiState.value.generatorMode == GeneratorMode.GEMINI) {
+                launch {
+                    val result = capabilityChecker.checkWithGemini(prompt) ?: return@launch
+                    if (!result.feasible) {
+                        _uiState.update {
+                            it.copy(
+                                capabilityWarning = result.warning,
+                                capabilityHint = result.suggestion
+                            )
+                        }
+                    }
+                }
+            }
             _uiState.update { it.copy(generateStatus = OperationStatus.Loading, error = null) }
             val existingDsl = if (_uiState.value.editingWidgetId != null) _uiState.value.editorJson.ifBlank { null } else null
             val sizeHint = if (_uiState.value.editingWidgetId == null) " Target size: ${_uiState.value.selectedSize.name} (${_uiState.value.selectedSize.label})." else ""
@@ -253,8 +287,9 @@ class MainViewModel @Inject constructor(
                         validateDsl()
                         val processed = runtime.processDsl(json).getOrNull()
                         val preview = processed?.let {
-                            val state = stateEngine.createInitialState(it.definition)
-                            RuntimeWidget(it.definition, state)
+                            val initial = stateEngine.createInitialState(it.definition)
+                            val resolved = dataSourceResolver.resolveAll(it.definition.data.variables)
+                            RuntimeWidget(it.definition, initial.copy(values = initial.values + resolved))
                         }
                         _uiState.update { it.copy(generateStatus = OperationStatus.Success, previewWidget = preview) }
                     }
@@ -275,6 +310,19 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             val state = _uiState.value
             _uiState.update { it.copy(saveStatus = OperationStatus.Loading, error = null) }
+
+            // Check permissions for data sources before saving
+            val processed = runtime.processDsl(state.editorJson).getOrNull()
+            if (processed == null) {
+                _uiState.update { it.copy(saveStatus = OperationStatus.Error("Invalid widget DSL"), error = "Invalid widget DSL") }
+                return@launch
+            }
+            val missing = permissionManager.missingPermissions(processed.definition)
+            if (missing.isNotEmpty()) {
+                _uiState.update { it.copy(saveStatus = OperationStatus.Idle, missingPermissions = missing) }
+                return@launch
+            }
+
             val result = if (state.editingWidgetId == null) {
                 runtime.createWidget(state.editorJson, state.prompt).map { it.widgetId }
             } else {
