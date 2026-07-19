@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +31,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
@@ -41,6 +43,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -61,6 +65,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -77,6 +82,8 @@ import androidx.navigation.compose.rememberNavController
 import com.example.aiwidgetstudio.ai.GeneratorMode
 import com.example.aiwidgetstudio.data.local.dao.WidgetListEntry
 import com.example.aiwidgetstudio.domain.model.WidgetSize
+import com.example.aiwidgetstudio.domain.model.WidgetTemplate
+import com.example.aiwidgetstudio.domain.model.WidgetTemplateRepository
 import com.example.aiwidgetstudio.glance.WidgetGlanceReceiver
 import com.example.aiwidgetstudio.presentation.AppScreen
 import com.example.aiwidgetstudio.presentation.MainUiState
@@ -235,7 +242,8 @@ private fun WidgetStudioApp(viewModel: MainViewModel, deepLinkWidgetId: String?,
                     onToggleAdvanced = viewModel::toggleAdvancedEditor,
                     onSave = viewModel::saveWidget,
                     onPin = { viewModel.saveWidget { widgetId -> onPinWidget(widgetId) } },
-                    onSizeChanged = viewModel::setWidgetSize
+                    onSizeChanged = viewModel::setWidgetSize,
+                    onTemplateSelected = viewModel::loadTemplate
                 )
             }
             composable("settings") {
@@ -500,7 +508,8 @@ private fun EditorScreen(
     onToggleAdvanced: () -> Unit,
     onSave: () -> Unit,
     onPin: () -> Unit,
-    onSizeChanged: (WidgetSize) -> Unit
+    onSizeChanged: (WidgetSize) -> Unit,
+    onTemplateSelected: (WidgetTemplate) -> Unit
 ) {
     val isEditing = state.editingWidgetId != null
     val keyboard = LocalSoftwareKeyboardController.current
@@ -563,6 +572,38 @@ private fun EditorScreen(
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                if (state.originalPrompt.isNotBlank()) {
+                    var editingOriginal by remember { mutableStateOf(false) }
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                state.originalPrompt,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = {
+                                    onPromptChanged(state.originalPrompt)
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Edit,
+                                    contentDescription = "Edit original prompt",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                        }
+                    }
+                }
                 state.previewWidget?.let { preview ->
                     Text(
                         preview.definition.metadata.name,
@@ -656,6 +697,24 @@ private fun EditorScreen(
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 3
             )
+
+            Text("Or start from a template", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                WidgetTemplateRepository.templates.forEach { template ->
+                    FilterChip(
+                        selected = false,
+                        onClick = { onTemplateSelected(template) },
+                        label = { Text("${template.emoji} ${template.name}") }
+                    )
+                }
+            }
+
+            HorizontalDivider()
 
             Text("Widget size", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
