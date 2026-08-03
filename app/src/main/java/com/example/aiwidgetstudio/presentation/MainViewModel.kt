@@ -25,6 +25,7 @@ import com.example.aiwidgetstudio.engine.state.WidgetStateCodec
 import com.example.aiwidgetstudio.engine.state.WidgetStateEngine
 import com.example.aiwidgetstudio.worker.RefreshWorkScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,13 +37,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 enum class AppScreen { LIST, EDITOR, SETTINGS }
-
-data class ParsedSummary(
-    val name: String = "",
-    val variableCount: Int = 0,
-    val actionCount: Int = 0,
-    val uiNodeCount: Int = 0
-)
 
 data class ModelSettingsState(
     val fileName: String = "",
@@ -77,7 +71,7 @@ data class MainUiState(
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
-    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context,
+    @ApplicationContext private val context: Context,
     private val runtime: WidgetRuntime,
     private val repository: WidgetRepository,
     private val geminiGenerator: GeminiWidgetGenerator,

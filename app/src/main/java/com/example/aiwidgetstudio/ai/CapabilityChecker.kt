@@ -1,10 +1,8 @@
 package com.example.aiwidgetstudio.ai
 
-import android.content.Context
 import com.example.aiwidgetstudio.BuildConfig
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
-import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -16,8 +14,7 @@ data class CapabilityResult(
 
 @Singleton
 class CapabilityChecker @Inject constructor(
-    private val generatorPreference: GeneratorPreference,
-    @ApplicationContext private val context: Context
+    private val generatorPreference: GeneratorPreference
 ) {
     // Keywords that indicate features the DSL engine cannot support
     // Note: call log, calendar, sms-count are supported via data sources — not blocked
@@ -47,10 +44,6 @@ class CapabilityChecker @Inject constructor(
     /** Gemini feasibility call — returns null if the API call fails (fail-open). */
     suspend fun checkWithGemini(prompt: String): CapabilityResult? {
         return try {
-            val model = GenerativeModel(
-                modelName = "gemini-2.0-flash",
-                apiKey = generatorPreference.geminiApiKey.ifBlank { BuildConfig.GEMINI_API_KEY }
-            )
             val systemMsg = """
                 You are a widget capability checker. Android home screen widgets can only show:
                 static text, counters, buttons that increment/decrement values, progress bars, and open URLs or the app.
