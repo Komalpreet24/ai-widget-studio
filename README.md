@@ -1,208 +1,132 @@
 # AI Widget Studio
 
-An Android app that turns natural language into functional home screen widgets. Describe what you want, and AI generates a working widget with live data, tap actions, and conditional styling.
+<p align="center">
+  <img src="docs/screenshots/1000030703.jpg" alt="A generated cigarette tracker on the Android home screen" width="30%" />
+  <img src="docs/screenshots/1000030696.jpg" alt="Generated widget preview in AI Widget Studio" width="30%" />
+  <img src="docs/screenshots/1000030698.jpg" alt="Refining a generated widget with natural language" width="30%" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/1000030691.jpg" alt="Create widget screen" width="30%" />
+  <img src="docs/screenshots/1000030694.jpg" alt="Widget idea suggestions" width="30%" />
+  <img src="docs/screenshots/1000030701.jpg" alt="Saved widget list" width="30%" />
+</p>
 
-**"Show my missed calls from today"** → A widget that displays your missed call count, updates every 15 minutes, and turns red when you have unread calls.
+Android app for creating functional home-screen widgets from natural-language prompts. AI Widget Studio turns a prompt into a JSON widget DSL, validates it, previews it, and renders the result as an interactive Jetpack Glance widget.
 
----
+## What It Does
+
+- Generate a widget from a plain-English prompt or paste JSON manually.
+- Preview the generated widget before adding it to the home screen.
+- Refine an existing widget with follow-up prompts.
+- Choose cloud generation with Gemini or local generation with an imported/downloaded on-device model.
+- Create local stateful widgets with buttons, persistent values, and daily or periodic resets.
+- Read supported Android data sources, including missed calls, calendar events, and app screen time, after the required permissions are granted.
+- Apply conditional styling, such as changing a widget's color when a value crosses a threshold.
+
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/1000030685.jpg" alt="Empty AI Widget Studio home screen" width="22%" />
+  <img src="docs/screenshots/1000030686.jpg" alt="Gemini AI settings" width="22%" />
+  <img src="docs/screenshots/1000030687.jpg" alt="On-device model settings" width="22%" />
+  <img src="docs/screenshots/1000030688.jpg" alt="On-device model download progress" width="22%" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/1000030690.jpg" alt="Ready on-device model" width="22%" />
+  <img src="docs/screenshots/1000030691.jpg" alt="Widget creation form" width="22%" />
+  <img src="docs/screenshots/1000030694.jpg" alt="Expanded widget ideas" width="22%" />
+  <img src="docs/screenshots/1000030695.jpg" alt="Generating a cigarette counter widget" width="22%" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/1000030697.jpg" alt="Widget JSON editor" width="22%" />
+  <img src="docs/screenshots/1000030699.jpg" alt="Applying widget changes" width="22%" />
+</p>
 
 ## How It Works
 
-1. Describe a widget in plain English
-2. AI converts your description into a structured JSON DSL
-3. The app parses, validates, and renders it as a real Android widget
-4. The widget lives on your home screen with live data and interactive buttons
+```text
+User prompt
+    -> Gemini or on-device model
+    -> JSON widget DSL
+    -> parser, mapper, and validator
+    -> typed WidgetDefinition + persisted WidgetState
+    -> Jetpack Glance home-screen widget
+```
 
----
-
-## Features
-
-**Live Preview**  
-See your widget render in real-time as the AI generates it. The preview shows actual data from your device so you know exactly what you'll get before adding it to your home screen.
-
-**Iterative Refinement**  
-Don't like something? Send another prompt. "Make the text bigger", "Add a reset button", "Change the color to blue when count is zero". The AI modifies the existing widget based on your feedback.
-
-**Conditional Styling**  
-Widgets change appearance based on state. "Turn red when missed calls > 0", "Show green background when water intake reaches 8 glasses". Conditions are evaluated on every render.
-
-**Daily/Periodic Resets**  
-Counter widgets can auto-reset. "Reset at midnight", "Reset every 2 hours". The state engine tracks last reset time and applies resets when due.
-
-**Live Data Sources**  
-Widgets pull real data from Android system APIs: missed call count and caller names from CallLog, next calendar event from CalendarContract, app screen time from UsageStatsManager.
-
-**Offline Support**  
-Works without internet using an on-device LLM. Download once, generate widgets anywhere.
-
----
-
-## AI Models
-
-The app supports two generation modes.
-
-### Cloud Model (Gemini)
-
-Uses `gemini-3.5-flash` via Gemini Android SDK. JSON streams in real-time as it generates. `responseMimeType = "application/json"` ensures valid output. Temperature is set to 0.2 for deterministic responses. Theme hints and installed apps list are injected into every prompt to prevent hallucinated package names.
-
-### Local Model (On-Device)
-
-Uses MediaPipe LLM Inference with LiteRT backend. Default model is Qwen2.5-1.5B-Instruct (quantized, ~1.5GB). One-tap download from HuggingFace in Settings, or import your own `.task` or `.litertlm` file. Once downloaded, works completely offline. Faster for simple widgets, less accurate for complex prompts.
-
-Switch between modes in Settings.
-
----
-
-## Demo Prompts
-
-| Prompt | What You Get |
-|--------|--------------|
-| "Water intake tracker with + and - buttons, resets daily at midnight" | Counter widget with increment/decrement, auto-resets at 00:00 |
-| "Show my next calendar event and minutes until it starts" | Live calendar widget with countdown |
-| "Instagram screen time today in minutes" | Usage stats widget querying UsageStatsManager |
-| "Missed calls widget that turns red when count > 0" | Conditional styling based on runtime state |
-| "Quick launch buttons for Spotify, YouTube, and Chrome" | Row of app launcher buttons |
-
----
+The runtime does not generate Kotlin code. The DSL describes data, actions, styles, and a recursive UI tree. The engine owns parsing, validation, state transitions, persistence, and rendering.
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         User Prompt                              │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  CapabilityChecker                                               │
-│  On-device blocklist check (instant)                            │
-│  Gemini feasibility check (async, non-blocking)                 │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  WidgetGenerator (Cloud or Local)                                │
-│  GeminiWidgetGenerator: streaming, JSON mode, context hints     │
-│  LocalWidgetDslGenerator: MediaPipe LLM, offline capable        │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  WidgetDslProcessor                                              │
-│  WidgetDslParser: kotlinx.serialization, lenient mode           │
-│  WidgetDslMapper: DTO to domain model, tolerant parsing         │
-│  WidgetValidator: warnings, not errors                          │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  WidgetRuntime                                                   │
-│  Creates/updates widgets with Mutex for thread safety           │
-│  Manages state transitions (increment, reset, toggle)           │
-│  Persists to Room (WidgetEntity + WidgetStateEntity)            │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Jetpack Glance (WidgetGlanceAppWidget)                         │
-│  Renders UiNode tree recursively                                │
-│  Resolves data sources synchronously before first paint         │
-│  Applies conditional style overrides through entire subtree     │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  WidgetDataRefreshWorker (WorkManager)                          │
-│  Runs every 15 minutes                                          │
-│  Runs immediately on app start                                  │
-│  Runs after permission grant                                    │
-└─────────────────────────────────────────────────────────────────┘
-```
+| Area | Responsibility |
+| --- | --- |
+| `ai` | Gemini and local-model generation, model download/import, prompt handling |
+| `engine` | DSL parsing, mapping, validation, conditions, state, and runtime actions |
+| `domain` | Typed models for widget definitions, variables, actions, UI nodes, and data sources |
+| `data` | Room persistence, Android data-source resolvers, and permissions |
+| `glance` | Recursive DSL-to-Glance rendering and widget refreshes |
+| `worker` | Background data refreshes and scheduled state resets |
+| `presentation` | Compose screens, preview, creation, refinement, and settings |
 
----
+## Example Prompts
 
-## Data Sources
+| Prompt | Result |
+| --- | --- |
+| `Water intake tracker with + and - buttons, resets daily at midnight` | Local counter with persistent state and a daily reset |
+| `Show my next calendar event and minutes until it starts` | Calendar-backed widget with a live countdown |
+| `Instagram screen time today in minutes` | Usage-statistics widget for a selected app |
+| `Missed calls widget that turns red when count is greater than 0` | Call-log widget with conditional styling |
+| `Cigarette counter with a +1 button and daily total` | Stateful tracker with an interactive home-screen button |
 
-| Source | What It Provides | Example Variable |
-|--------|------------------|------------------|
-| `CALL_LOG` | Missed call count, caller names | `missed_count`, `missed_caller_1` |
-| `CALENDAR` | Next event title, minutes until start | `next_event`, `event_minutes` |
-| `USAGE_STATS` | Screen time per app in minutes | `instagram_time` |
-
-`DataSourceResolver` dispatches to the correct resolver based on variable name patterns. Supports indexed access (`_caller_1`, `_caller_2`) for multiple values.
-
----
-
-## The DSL
-
-AI outputs JSON like this:
+## DSL Example
 
 ```json
 {
   "dslVersion": 1,
-  "metadata": { "name": "Missed Calls", "size": "SMALL" },
+  "metadata": { "name": "Water Tracker", "size": "MEDIUM" },
   "data": {
+    "updatePolicy": { "type": "DAILY_RESET", "hour": 0, "minute": 0 },
     "variables": [
-      {
-        "name": "missed_count",
-        "type": "INT",
-        "default": 0,
-        "source": { "type": "CALL_LOG", "filter": "MISSED", "windowMinutes": 1440 }
-      }
+      { "name": "glasses", "type": "INT", "default": 0, "min": 0, "max": 8 }
     ]
   },
   "actions": [
-    { "id": "open", "type": "OPEN_APP" }
-  ],
-  "conditions": [
-    {
-      "variable": "missed_count",
-      "operator": ">",
-      "value": 0,
-      "style": { "backgroundColor": "#FFCDD2", "textColor": "#B71C1C" }
-    }
+    { "id": "drink", "type": "INCREMENT", "target": "glasses", "step": 1 }
   ],
   "ui": {
-    "type": "CARD",
-    "child": {
-      "type": "COLUMN",
-      "children": [
-        { "type": "TEXT", "value": "📞 {{missed_count}} missed" },
-        { "type": "BUTTON", "text": "Open", "action": "open" }
-      ]
-    }
+    "type": "COLUMN",
+    "children": [
+      { "type": "TEXT", "value": "{{glasses}} / 8 glasses" },
+      { "type": "PROGRESS", "current": "{{glasses}}", "max": "8" },
+      { "type": "BUTTON", "text": "Drink", "action": "drink" }
+    ]
   }
 }
 ```
 
-The mapper is lenient. `"COL"` or `"COLUMN"` both work, `">"` or `"GT"` both work. This tolerance is intentional because AI output isn't always consistent.
-
----
-
 ## Tech Stack
 
 | Layer | Technology |
-|-------|------------|
-| UI | Jetpack Compose, Material 3 |
-| Widgets | Jetpack Glance |
-| DI | Hilt with @EntryPoint for Glance/Worker contexts |
-| Database | Room with 3 entities and 2 migrations |
-| Background | WorkManager with HiltWorkerFactory |
-| Cloud AI | Gemini Android SDK with streaming and JSON mode |
-| Local AI | MediaPipe LLM Inference, LiteRT |
-| Serialization | kotlinx.serialization with lenient parsing |
-| State | StateFlow, DataStore |
-| Concurrency | Coroutines, Mutex for thread-safe state updates |
+| --- | --- |
+| UI | Kotlin, Jetpack Compose, Material 3 |
+| Home-screen widgets | Jetpack Glance |
+| Dependency injection | Hilt |
+| Storage | Room and DataStore |
+| Background work | WorkManager |
+| AI | Gemini Android SDK, MediaPipe LLM Inference, LiteRT-LM |
+| Serialization | kotlinx.serialization |
+| State and concurrency | StateFlow, Coroutines, Mutex |
 
----
+## Build And Run
 
-## Building
+1. Clone the repository.
+2. Open it in Android Studio.
+3. For Gemini generation, add a key to `local.properties`:
 
-1. Clone the repo
-2. Add your Gemini API key to `local.properties`:
-   ```
+   ```properties
    GEMINI_API_KEY=your_key_here
    ```
-3. Build and run on a device/emulator with API 26+
 
-For offline-only usage, skip the API key and download the on-device model from Settings.
+4. Build and run on a device or emulator running Android API 24 or newer.
+5. For offline generation, open **AI Settings** and download or import a compatible local model.
+
+The app also works without a Gemini key when you use a local model or the manual JSON editor.
